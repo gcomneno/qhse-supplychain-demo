@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenv
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Local DB / runtime artifacts
+qhse_demo.sqlite3
+*.sqlite3
+*.db
+*.log
+
+# Coverage
+.coverage
+htmlcov/
+
+# Env files
+.env
+.env.*
