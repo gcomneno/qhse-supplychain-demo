@@ -47,16 +47,30 @@ def process_one_event(session: Session, ev: OutboxEvent) -> None:
 
 def run_once(limit: int = 10) -> int:
     processed = 0
+
+    # 1) Fetch candidate IDs in a short-lived session.
+    #    IMPORTANT: we only carry IDs across sessions (not ORM objects),
+    #    to guarantee 1-event-1-transaction semantics.
     with get_session() as session:
-        q = (
-            select(OutboxEvent)
+        q_ids = (
+            select(OutboxEvent.id)
             .where(OutboxEvent.status == "PENDING")
             .order_by(OutboxEvent.id.asc())
             .limit(limit)
         )
-        events = list(session.execute(q).scalars())
+        event_ids = list(session.execute(q_ids).scalars())
 
-        for ev in events:
+    # 2) Process each event in its own transaction/session.
+    for outbox_id in event_ids:
+        with get_session() as session:
+            ev = session.get(OutboxEvent, outbox_id)
+            if ev is None:
+                continue
+
+            # Status might have changed since we selected candidate IDs.
+            if ev.status != "PENDING":
+                continue
+
             try:
                 ev.status = "PROCESSING"
                 ev.attempts += 1
@@ -73,6 +87,7 @@ def run_once(limit: int = 10) -> int:
                 print(f"[worker] error processing event id={ev.id} type={ev.event_type}: {e}")
 
     return processed
+
 
 
 def main() -> None:
