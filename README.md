@@ -1,30 +1,35 @@
-# QHSE Supply Chain Demo (Sinergest-like) — FastAPI + SQLAlchemy + SQLite
+# QHSE / Supply Chain Demo (FastAPI + Outbox + Audit)
 
-Mini piattaforma QHSE / Supply Chain con gestione **Non Conformità (NC)** su fornitori, architettura **event-driven affidabile** tramite **Outbox transazionale**, **worker idempotente** e **Audit Trail verificabile**.
+This repository is a compact, production-minded demo of a QHSE / Supply Chain backend focused on **reliability over scalability**.
 
-L’obiettivo non è il framework, ma l’integrità del flusso:
-prima garantire coerenza e tracciabilità, poi (eventualmente) scalare.
+It models a minimal supplier & non-conformity workflow and demonstrates an event-driven architecture where business changes are **durably captured, processed idempotently, and fully auditable** — without introducing a message broker yet.
 
----
+## Why this exists
 
-## Pitch (20 secondi)
+Traditional supply chain processes often rely on fragmented tools and manual steps, which makes it hard to maintain:
+- consistent supplier qualification & monitoring,
+- traceability of operational decisions,
+- fast and verifiable reaction to non-conformities (QHSE).
 
-Creo una Non Conformità e, nella stessa transazione DB, genero un evento Outbox.
-Un worker idempotente consuma gli eventi e scrive un audit trail append-only.
-I KPI riflettono in tempo reale lo stato operativo e il rischio fornitore.
-È event-driven affidabile senza dipendere da broker esterni.
+This demo shows a pragmatic approach: **centralize core entities (Suppliers, Non-Conformities), emit domain events transactionally, process them safely, and expose operational KPIs**.
 
----
+## Key characteristics
 
-## Architettura (mini)
+- **Transactional Outbox Pattern**: domain events are written in the same DB transaction as business data.
+- **Idempotent polling worker**: events are processed at-least-once with deduplication (`processed_events`).
+- **Append-only audit trail**: every handled event leaves an immutable record (`audit_log`).
+- **Operational KPIs**: `/kpi` reports NC counts, outbox health, and suppliers at risk (expired certification or open high NC).
+- **Demo scripts**: `./reset_demo.sh` and `./demo.sh` to reproduce the workflow end-to-end.
+
+## Architecture (high level)
 
 Client → FastAPI → DB (business + outbox)
-                      |
-                      ↓
-                  worker.py (polling)
-                      |
-                      ↓
-            audit_log + processed_events
+                    |
+                    v
+               worker.py (polling)
+                    |
+                    v
+           audit_log + processed_events
 
 - Outbox e dati business condividono la stessa transazione
 - Worker idempotente evita duplicazioni
@@ -143,3 +148,6 @@ Registro verificabile delle azioni di sistema.
 
 ## Nota
 Il design è broker-agnostico: il worker polling può essere sostituito da un message broker (Kafka, RabbitMQ, ecc.) senza modificare il modello dati o il pattern Outbox.
+
+## Documentazione
+[Reliability Guarantees](docs/reliability-guarantees.md)

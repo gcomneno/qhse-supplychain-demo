@@ -13,12 +13,11 @@ class SupplierCreate(BaseModel):
 
 
 class SupplierOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     certification_expiry: Optional[str]
-
-    class Config:
-        from_attributes = True
 
 
 class NCCreate(BaseModel):
@@ -28,14 +27,13 @@ class NCCreate(BaseModel):
 
 
 class NCOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     supplier_id: int
     severity: str
     status: str
     description: str
-
-    class Config:
-        from_attributes = True
 
 
 class SupplierDetailOut(BaseModel):
