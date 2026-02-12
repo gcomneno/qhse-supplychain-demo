@@ -1,0 +1,89 @@
+--- a/app/schemas.py
++++ b/app/schemas.py
+@@ -13,12 +13,11 @@
+ 
+ 
+ class SupplierOut(BaseModel):
++    model_config = ConfigDict(from_attributes=True)
++
+     id: int
+     name: str
+     certification_expiry: Optional[str]
+-
+-    class Config:
+-        from_attributes = True
+ 
+ 
+ class NCCreate(BaseModel):
+@@ -28,14 +27,13 @@
+ 
+ 
+ class NCOut(BaseModel):
++    model_config = ConfigDict(from_attributes=True)
++
+     id: int
+     supplier_id: int
+     severity: str
+     status: str
+     description: str
+-
+-    class Config:
+-        from_attributes = True
+ 
+ 
+ class SupplierDetailOut(BaseModel):
+--- a/app/models.py
++++ b/app/models.py
+@@ -1,6 +1,6 @@
+ from __future__ import annotations
+ 
+-from datetime import datetime
++from datetime import datetime, UTC
+ from typing import Optional
+ 
+ from sqlalchemy import (
+@@ -28,7 +28,7 @@
+     # YYYY-MM-DD as string for demo simplicity (could be Date)
+     certification_expiry: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+ 
+-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
++    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), nullable=False)
+ 
+     ncs: Mapped[list["NonConformity"]] = relationship(back_populates="supplier")
+ 
+@@ -43,7 +43,7 @@
+     status: Mapped[str] = mapped_column(String(20), nullable=False, default="OPEN")  # OPEN/CLOSED
+     description: Mapped[str] = mapped_column(Text, nullable=False)
+ 
+-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
++    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), nullable=False)
+ 
+     supplier: Mapped["Supplier"] = relationship(back_populates="ncs")
+ 
+@@ -67,7 +67,7 @@
+     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
+     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+ 
+-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
++    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), nullable=False)
+     processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+ 
+     __table_args__ = (
+@@ -88,7 +88,7 @@
+     entity_id: Mapped[str] = mapped_column(String(64), nullable=False)
+ 
+     meta_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
++    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), nullable=False)
+ 
+     __table_args__ = (
+         Index("ix_audit_entity", "entity_type", "entity_id"),
+@@ -101,7 +101,7 @@
+ 
+     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+     event_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+-    processed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
++    processed_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), nullable=False)
+ 
+     __table_args__ = (
+         Index("ix_processed_event_id", "event_id"),
