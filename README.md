@@ -1,11 +1,9 @@
 # QHSE / Supply Chain Demo (FastAPI + Outbox + Audit)
-
 This repository is a compact, production-minded demo of a QHSE / Supply Chain backend focused on **reliability over scalability**.
 
 It models a minimal supplier & non-conformity workflow and demonstrates an event-driven architecture where business changes are **durably captured, processed idempotently, and fully auditable** — without introducing a message broker yet.
 
 ## Why this exists
-
 Traditional supply chain processes often rely on fragmented tools and manual steps, which makes it hard to maintain:
 - consistent supplier qualification & monitoring,
 - traceability of operational decisions,
@@ -14,7 +12,6 @@ Traditional supply chain processes often rely on fragmented tools and manual ste
 This demo shows a pragmatic approach: **centralize core entities (Suppliers, Non-Conformities), emit domain events transactionally, process them safely, and expose operational KPIs**.
 
 ## Key characteristics
-
 - **Transactional Outbox Pattern**: domain events are written in the same DB transaction as business data.
 - **Idempotent polling worker**: events are processed at-least-once with deduplication (`processed_events`).
 - **Append-only audit trail**: every handled event leaves an immutable record (`audit_log`).
@@ -22,7 +19,6 @@ This demo shows a pragmatic approach: **centralize core entities (Suppliers, Non
 - **Demo scripts**: `./reset_demo.sh` and `./demo.sh` to reproduce the workflow end-to-end.
 
 ## Architecture (high level)
-
 Client → FastAPI → DB (business + outbox)
                     |
                     v
@@ -38,7 +34,6 @@ Client → FastAPI → DB (business + outbox)
 ---
 
 ## Cosa dimostra (in pratica)
-
 - Gestione **Supplier** e **NonConformity**
 - Creazione NC → evento `NC_CREATED` in Outbox (transazionale)
 - Chiusura NC → evento `NC_CLOSED`
@@ -49,12 +44,24 @@ Client → FastAPI → DB (business + outbox)
 
 ---
 
-## KPI disponibili
+## Configuration
+```bash
+cp .env.example .env
+```
 
+Edit .env if needed (DATABASE_URL, JWT settings).
+
+Run tests:
+```bash
+pytest -q
+```
+
+---
+
+## KPI disponibili
 `GET /kpi`
 
 Restituisce:
-
 - `nc_open`
 - `nc_open_high`
 - `nc_closed`

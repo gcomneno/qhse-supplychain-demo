@@ -6,20 +6,24 @@ from typing import Iterator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
-DATABASE_URL = "sqlite:///./qhse_demo.sqlite3"
+from app.settings import get_settings
+
+settings = get_settings()
+DATABASE_URL = settings.DATABASE_URL
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},
+    pool_pre_ping=True,
+    future=True,
 )
 
 SessionLocal = sessionmaker(
     bind=engine,
     autoflush=False,
     autocommit=False,
-    expire_on_commit=False,
     future=True,
 )
+
 
 @contextmanager
 def get_session() -> Iterator[Session]:
