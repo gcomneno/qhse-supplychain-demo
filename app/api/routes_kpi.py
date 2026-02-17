@@ -2,19 +2,19 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter
-from sqlalchemy import select, func
+from fastapi import APIRouter, Depends
+from sqlalchemy import func, select
 
+from app.auth import require_role
 from app.db import get_session
-from app.models import NonConformity, OutboxEvent, Supplier, AuditLog
-
+from app.models import AuditLog, NonConformity, OutboxEvent, Supplier
 
 router = APIRouter(prefix="/kpi", tags=["kpi"])
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_role(["auditor", "quality", "admin"]))])
 def get_kpi():
-    today = date.today().isoformat()  # YYYY-MM-DD (demo)
+    today = date.today()  # DATE, non stringa
 
     with get_session() as session:
         nc_open = session.execute(
@@ -40,9 +40,7 @@ def get_kpi():
             select(func.count()).select_from(OutboxEvent).where(OutboxEvent.status == "FAILED")
         ).scalar_one()
 
-        audit_events_total = session.execute(
-            select(func.count()).select_from(AuditLog)
-        ).scalar_one()
+        audit_events_total = session.execute(select(func.count()).select_from(AuditLog)).scalar_one()
 
         # Suppliers at risk = cert expired OR at least one OPEN high NC
         risk_ids_from_cert = session.execute(
