@@ -7,6 +7,8 @@ from sqlalchemy import select, func
 
 from app.db import get_session
 from app.models import NonConformity, OutboxEvent, Supplier, AuditLog
+from fastapi import Depends
+from app.auth import require_role
 
 
 router = APIRouter(prefix="/kpi", tags=["kpi"])
@@ -70,3 +72,12 @@ def get_kpi():
         "suppliers_at_risk": suppliers_at_risk,
         "audit_events_total": audit_events_total,
     }
+
+
+@router.post("/suppliers", dependencies=[Depends(require_role(["procurement","admin"]))])
+def create_supplier(...):
+    ...
+
+@router.get("/suppliers", dependencies=[Depends(require_role(["auditor","quality","procurement","admin"]))])
+def list_suppliers(...):
+    ...

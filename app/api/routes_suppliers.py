@@ -6,9 +6,11 @@ from app.db import get_session
 from app.schemas import SupplierCreate, SupplierOut, SupplierDetailOut, SupplierCertUpdate
 from app.services.supplier_service import create_supplier, get_supplier_detail, update_supplier_certification
 
+from fastapi import Depends
+from app.auth import require_role
+
 
 router = APIRouter(prefix="/suppliers", tags=["suppliers"])
-
 
 @router.post("", response_model=SupplierOut, status_code=201)
 def post_supplier(payload: SupplierCreate):
@@ -37,3 +39,11 @@ def patch_supplier_cert(supplier_id: int, payload: SupplierCertUpdate):
             return s
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/suppliers", dependencies=[Depends(require_role(["procurement","admin"]))])
+def create_supplier(...):
+    ...
+
+@router.get("/suppliers", dependencies=[Depends(require_role(["auditor","quality","procurement","admin"]))])
+def list_suppliers(...):
+    ...
