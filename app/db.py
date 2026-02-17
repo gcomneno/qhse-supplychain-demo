@@ -1,32 +1,22 @@
+# app/db.py
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Iterator
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session, sessionmaker
 
-DATABASE_URL = "sqlite:///./qhse_demo.sqlite3"
+from app.settings import get_settings
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False},
-)
+_settings = get_settings()
 
-SessionLocal = sessionmaker(
-    bind=engine,
-    autoflush=False,
-    autocommit=False,
-    expire_on_commit=False,
-    future=True,
-)
+engine = create_engine(_settings.DATABASE_URL, future=True)
+
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
 
 @contextmanager
-def get_session() -> Iterator[Session]:
-    """
-    Context manager for DB sessions.
-    Commits on success, rollbacks on exception.
-    """
+def get_session():
     session: Session = SessionLocal()
     try:
         yield session

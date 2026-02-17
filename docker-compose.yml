@@ -8,13 +8,58 @@ services:
       POSTGRES_DB: qhse
     ports:
       - "5432:5432"
-    volumes:
-      - qhse_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U qhse -d qhse"]
-      interval: 5s
+      interval: 2s
       timeout: 3s
-      retries: 20
+      retries: 30
+
+  migrate:
+    build:
+      context: .
+    environment:
+      ENV: docker
+      DATABASE_URL: postgresql+psycopg://qhse:qhse@qhse_pg:5432/qhse
+      JWT_SECRET: changeme
+      JWT_ALG: HS256
+      ACCESS_TOKEN_EXPIRE_MIN: "60"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    build:
+      context: .
+    environment:
+      ENV: docker
+      DATABASE_URL: postgresql+psycopg://qhse:qhse@qhse_pg:5432/qhse
+      JWT_SECRET: changeme
+      JWT_ALG: HS256
+      ACCESS_TOKEN_EXPIRE_MIN: "60"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+    environment:
+      ENV: docker
+      DATABASE_URL: postgresql+psycopg://qhse:qhse@qhse_pg:5432/qhse
+      JWT_SECRET: changeme
+      JWT_ALG: HS256
+      ACCESS_TOKEN_EXPIRE_MIN: "60"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["python", "worker.py"]
+    restart: on-failure:3
 
 volumes:
   qhse_pgdata:

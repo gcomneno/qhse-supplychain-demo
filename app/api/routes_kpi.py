@@ -46,7 +46,8 @@ def get_kpi():
         risk_ids_from_cert = session.execute(
             select(Supplier.id).where(
                 Supplier.certification_expiry.is_not(None),
-                Supplier.certification_expiry < today,
+                Supplier.certification_expiry != "",
+                func.to_date(Supplier.certification_expiry, "YYYY-MM-DD") < today,
             )
         ).scalars().all()
 
