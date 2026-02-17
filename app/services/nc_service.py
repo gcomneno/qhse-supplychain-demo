@@ -51,10 +51,23 @@ def close_nc(session: Session, nc_id: int) -> NonConformity:
     return nc
 
 
-def list_ncs(session, offset: int = 0, limit: int = 20) -> list[NonConformity]:
+def list_ncs(
+    session,
+    offset: int = 0,
+    limit: int = 20,
+    status: str | None = None,
+    severity: str | None = None,
+) -> list[NonConformity]:
+    q = select(NonConformity)
+
+    if status:
+        q = q.where(NonConformity.status == status)
+
+    if severity:
+        q = q.where(NonConformity.severity == severity)
+
     q = (
-        select(NonConformity)
-        .order_by(NonConformity.id.asc())
+        q.order_by(NonConformity.id.asc())
         .offset(offset)
         .limit(limit)
     )
