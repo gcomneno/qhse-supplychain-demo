@@ -52,6 +52,8 @@ def patch_close_nc(nc_id: int):
 def list_ncs_endpoint(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    status: str | None = Query(None),
+    severity: str | None = Query(None),
 ):
     with get_session() as session:
-        return list_ncs(session, offset=offset, limit=limit)
+        return list_ncs(session, offset=offset, limit=limit, status=status, severity=severity)
