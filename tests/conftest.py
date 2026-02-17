@@ -1,6 +1,10 @@
 # tests/conftest.py
 from __future__ import annotations
 
+import os
+os.environ["DATABASE_URL"] = "sqlite:///./qhse_demo.sqlite3"
+os.environ["ENV"] = "test"
+
 from pathlib import Path
 
 import pytest

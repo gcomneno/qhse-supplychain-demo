@@ -7,7 +7,7 @@ from app.api.routes_ncs import router as ncs_router
 from app.api.routes_kpi import router as kpi_router
 from app.api.routes_auth import router as auth_router
 
-app = FastAPI(title="QHSE Supply Chain Demo (Sinergest-like)")
+app = FastAPI(title="QHSE Supply Chain Demo")
 
 app.include_router(suppliers_router)
 app.include_router(kpi_router)
