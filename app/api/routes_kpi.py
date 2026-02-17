@@ -43,11 +43,22 @@ def get_kpi():
         audit_events_total = session.execute(select(func.count()).select_from(AuditLog)).scalar_one()
 
         # Suppliers at risk = cert expired OR at least one OPEN high NC
+        # certification_expiry is stored as ISO string "YYYY-MM-DD" for demo simplicity.
+        # - On Postgres: cast string -> date using to_date()
+        # - On SQLite (tests): no to_date(), ISO string comparison works lexicographically
+        dialect = session.get_bind().dialect.name
+        today_iso = today.isoformat()
+
+        if dialect == "postgresql":
+            cert_expired_clause = func.to_date(Supplier.certification_expiry, "YYYY-MM-DD") < today
+        else:
+            cert_expired_clause = Supplier.certification_expiry < today_iso
+
         risk_ids_from_cert = session.execute(
             select(Supplier.id).where(
                 Supplier.certification_expiry.is_not(None),
                 Supplier.certification_expiry != "",
-                func.to_date(Supplier.certification_expiry, "YYYY-MM-DD") < today,
+                cert_expired_clause,
             )
         ).scalars().all()
 
