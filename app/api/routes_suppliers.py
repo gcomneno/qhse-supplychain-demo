@@ -1,18 +1,25 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
-from app.db import get_session
-from app.schemas import SupplierCreate, SupplierOut, SupplierDetailOut, SupplierCertUpdate
-from app.services.supplier_service import create_supplier, get_supplier_detail, update_supplier_certification
-
-from fastapi import Depends
 from app.auth import require_role
-
+from app.db import get_session
+from app.schemas import SupplierCertUpdate, SupplierCreate, SupplierDetailOut, SupplierOut
+from app.services.supplier_service import (
+    create_supplier,
+    get_supplier_detail,
+    update_supplier_certification,
+)
 
 router = APIRouter(prefix="/suppliers", tags=["suppliers"])
 
-@router.post("", response_model=SupplierOut, status_code=201)
+
+@router.post(
+    "",
+    response_model=SupplierOut,
+    status_code=201,
+    dependencies=[Depends(require_role(["procurement", "admin"]))],
+)
 def post_supplier(payload: SupplierCreate):
     try:
         with get_session() as session:
@@ -22,7 +29,11 @@ def post_supplier(payload: SupplierCreate):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/{supplier_id}", response_model=SupplierDetailOut)
+@router.get(
+    "/{supplier_id}",
+    response_model=SupplierDetailOut,
+    dependencies=[Depends(require_role(["auditor", "quality", "procurement", "admin"]))],
+)
 def get_supplier(supplier_id: int):
     try:
         with get_session() as session:
@@ -31,19 +42,17 @@ def get_supplier(supplier_id: int):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.patch("/{supplier_id}/certification", response_model=SupplierOut)
+@router.patch(
+    "/{supplier_id}/certification",
+    response_model=SupplierOut,
+    dependencies=[Depends(require_role(["procurement", "admin"]))],
+)
 def patch_supplier_cert(supplier_id: int, payload: SupplierCertUpdate):
     try:
         with get_session() as session:
-            s = update_supplier_certification(session, supplier_id, payload.certification_expiry)
+            s = update_supplier_certification(
+                session, supplier_id, payload.certification_expiry
+            )
             return s
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
-@router.post("/suppliers", dependencies=[Depends(require_role(["procurement","admin"]))])
-def create_supplier(...):
-    ...
-
-@router.get("/suppliers", dependencies=[Depends(require_role(["auditor","quality","procurement","admin"]))])
-def list_suppliers(...):
-    ...
