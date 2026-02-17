@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import NonConformity, Supplier
@@ -48,3 +49,13 @@ def close_nc(session: Session, nc_id: int) -> NonConformity:
         payload={"nc_id": nc.id},
     )
     return nc
+
+
+def list_ncs(session, offset: int = 0, limit: int = 20) -> list[NonConformity]:
+    q = (
+        select(NonConformity)
+        .order_by(NonConformity.id.asc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(session.execute(q).scalars().all())

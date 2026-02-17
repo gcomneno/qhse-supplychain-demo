@@ -77,3 +77,13 @@ def update_supplier_certification(session: Session, supplier_id: int, certificat
         payload={"supplier_id": s.id, "certification_expiry": s.certification_expiry},
     )
     return s
+
+
+def list_suppliers(session, offset: int = 0, limit: int = 20) -> list[Supplier]:
+    q = (
+        select(Supplier)
+        .order_by(Supplier.id.asc())
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(session.execute(q).scalars().all())

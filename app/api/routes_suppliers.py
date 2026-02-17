@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth import require_role
 from app.db import get_session
@@ -9,7 +9,9 @@ from app.services.supplier_service import (
     create_supplier,
     get_supplier_detail,
     update_supplier_certification,
+    list_suppliers,
 )
+
 
 router = APIRouter(prefix="/suppliers", tags=["suppliers"])
 
@@ -27,6 +29,19 @@ def post_supplier(payload: SupplierCreate):
             return s
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get(
+    "",
+    response_model=list[SupplierOut],
+    dependencies=[Depends(require_role(["auditor", "quality", "procurement", "admin"]))],
+)
+def list_suppliers_endpoint(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    with get_session() as session:
+        return list_suppliers(session, offset=offset, limit=limit)
 
 
 @router.get(
