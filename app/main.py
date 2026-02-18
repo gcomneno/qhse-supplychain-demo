@@ -152,7 +152,7 @@ def custom_openapi():
     # Apply security globally to all endpoints except /auth/login
     paths = schema.get("paths", {})
     for path, methods in paths.items():
-        if path == "/auth/login":
+        if path in {"/auth/login", "/health", "/healthz", "/readyz"}:
             continue
         for method, op in methods.items():
             if not isinstance(op, dict):
