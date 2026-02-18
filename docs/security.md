@@ -1,6 +1,7 @@
 # Security Model
 
 This document describes authentication and authorization design decisions.
+It also documents which endpoints are intentionally public (operational probes).
 
 The system uses:
 - JWT (HS256)
@@ -17,7 +18,7 @@ Authentication is performed via:
 
 POST /auth/login
 
-````
+```
 
 Valid demo users:
 
@@ -68,13 +69,36 @@ If:
 
 ---
 
-# 3. Endpoint Role Matrix
+# 3. Operational Endpoints (Public)
+
+The following endpoints are intentionally **unauthenticated** (no JWT required).
+They are meant for container/runtime orchestration and basic monitoring.
+
+| Endpoint       | Purpose                           | Auth   |
+|----------------|-----------------------------------|--------|
+| `GET /health`  | Legacy basic liveness             | Public |
+| `GET /healthz` | Liveness probe (process up)       | Public |
+| `GET /readyz`  | Readiness probe (DB + migrations) | Public |
+
+`/readyz` behavior:
+- Always checks DB connectivity (`SELECT 1`).
+- In `ENV=test`, it **skips** the migrations alignment check (tests use SQLite deterministic setup).
+- In `ENV=docker`/prod-like environments, it checks that the DB Alembic revision matches the code head.
+
+If not ready, `/readyz` returns **503** with a JSON body including check details.
+
+---
+
+# 4. Endpoint Role Matrix
 
 This table summarizes access control policy:
 
 | Endpoint                              | Read Roles                           | Write Roles        |
 | ------------------------------------- | ------------------------------------ | ------------------ |
 | `POST /auth/login`                    | Public                               | Public             |
+| `GET /health`                         | Public                               | —                  |
+| `GET /healthz`                        | Public                               | —                  |
+| `GET /readyz`                         | Public                               | —                  |
 | `GET /kpi`                            | auditor, quality, admin              | —                  |
 | `GET /suppliers`                      | auditor, quality, procurement, admin | —                  |
 | `POST /suppliers`                     | —                                    | procurement, admin |
@@ -87,48 +111,42 @@ This table summarizes access control policy:
 
 ---
 
-# 4. Enforcement Location
+# 5. Enforcement Location
 
 Authorization is enforced **at the API boundary**.
 
 Service functions assume:
-
-* Valid authentication
-* Valid authorization
+- Valid authentication
+- Valid authorization
 
 This ensures:
-
-* Business logic remains clean
-* Authorization policy is explicit per endpoint
-* Role policies are visible in route definitions
+- Business logic remains clean
+- Authorization policy is explicit per endpoint
+- Role policies are visible in route definitions
 
 ---
 
-# 5. Design Trade-offs
+# 6. Design Trade-offs
 
 ## Why Static Users?
 
 The project focuses on RBAC structure, not identity lifecycle.
-
 Full user management (password hashing, user persistence, refresh tokens) would distract from architectural focus.
 
 ## Why Role in JWT?
-
 Embedding role in the token:
-
-* Avoids DB lookups per request
-* Keeps authorization stateless
-* Simplifies demo architecture
+- Avoids DB lookups per request
+- Keeps authorization stateless
+- Simplifies demo architecture
 
 In production, roles might be:
-
-* Retrieved from DB
-* Managed via IAM
-* Refreshed via short-lived access tokens
+- Retrieved from DB
+- Managed via IAM
+- Refreshed via short-lived access tokens
 
 ---
 
-# 6. Production Considerations (Not Implemented)
+# 7. Production Considerations (Not Implemented)
 
 In a production system, we would likely add:
 - Refresh tokens
