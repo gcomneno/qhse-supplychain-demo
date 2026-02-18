@@ -1,153 +1,358 @@
-# QHSE / Supply Chain Demo (FastAPI + Outbox + Audit)
+# QHSE Supply Chain Backend
 
-This repository is a compact, production-minded demo of a QHSE / Supply Chain backend focused on **reliability over scalability**.
-
-It models a minimal supplier & non-conformity workflow and demonstrates an event-driven architecture where business changes are **durably captured, processed idempotently, and fully auditable** — without introducing a message broker yet.
-
-## Why this exists
-
-Traditional supply chain processes often rely on fragmented tools and manual steps, which makes it hard to maintain:
-- consistent supplier qualification & monitoring,
-- traceability of operational decisions,
-- fast and verifiable reaction to non-conformities (QHSE).
-
-This demo shows a pragmatic approach: **centralize core entities (Suppliers, Non-Conformities), emit domain events transactionally, process them safely, and expose operational KPIs**.
-
-## Key characteristics
-
-- **Transactional Outbox Pattern**: domain events are written in the same DB transaction as business data.
-- **Idempotent polling worker**: events are processed at-least-once with deduplication (`processed_events`).
-- **Append-only audit trail**: every handled event leaves an immutable record (`audit_log`).
-- **Operational KPIs**: `/kpi` reports NC counts, outbox health, and suppliers at risk (expired certification or open high NC).
-- **Demo scripts**: `./reset_demo.sh` and `./demo.sh` to reproduce the workflow end-to-end.
-
-## Architecture (high level)
-
-Client → FastAPI → DB (business + outbox)
-                    |
-                    v
-               worker.py (polling)
-                    |
-                    v
-           audit_log + processed_events
-
-- Outbox e dati business condividono la stessa transazione
-- Worker idempotente evita duplicazioni
-- Audit trail append-only garantisce tracciabilità
+### Reliability-Oriented Architecture Demo (FastAPI + SQLAlchemy + Postgres)
 
 ---
 
-## Cosa dimostra (in pratica)
+## 1. Overview
 
-- Gestione **Supplier** e **NonConformity**
-- Creazione NC → evento `NC_CREATED` in Outbox (transazionale)
-- Chiusura NC → evento `NC_CLOSED`
-- Aggiornamento certificazione → evento `SUPPLIER_CERT_UPDATED`
-- Worker idempotente con deduplica su `processed_events`
-- Audit trail persistente su `audit_log`
-- Endpoint `/kpi` con metriche operative e rischio fornitore
+This project is a reliability-focused backend demo for a simplified QHSE (Quality, Health, Safety, Environment) supply chain domain.
 
----
+It is intentionally designed around:
 
-## KPI disponibili
+* **Consistency**
+* **Transaction boundaries**
+* **Role-based access control**
+* **Idempotent background processing**
+* **Clear architectural layering**
 
-`GET /kpi`
-
-Restituisce:
-
-- `nc_open`
-- `nc_open_high`
-- `nc_closed`
-- `outbox_pending`
-- `outbox_failed`
-- `suppliers_at_risk`
-- `audit_events_total`
-
-### Regola rischio fornitore
-
-Un fornitore è "a rischio" se:
-
-- certificazione scaduta  
-**oppure**
-- almeno una NC `high` aperta
+The goal is not feature richness, but architectural correctness.
 
 ---
 
-## Requisiti
+## 2. High-Level Architecture
 
-- Python 3.12+
-- (opzionale) `sqlite3` CLI
-
----
-
-## Setup
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install fastapi "uvicorn[standard]" sqlalchemy pydantic
-python scripts/init_db.py
+```
+             ┌──────────────┐
+             │   FastAPI    │
+             │  API Layer   │
+             └──────┬───────┘
+                    │
+                    ▼
+             ┌──────────────┐
+             │   Services   │
+             │  (Business)  │
+             └──────┬───────┘
+                    │
+                    ▼
+             ┌──────────────┐
+             │ SQLAlchemy   │
+             │ Persistence  │
+             └──────┬───────┘
+                    │
+                    ▼
+               PostgreSQL
+                    │
+                    ▼
+            ┌────────────────┐
+            │  Worker        │
+            │  (Outbox Poll) │
+            └────────────────┘
 ```
 
-## Avvio API
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+### Layers
 
+* **API layer**: request validation, RBAC enforcement
+* **Service layer**: business rules and transaction boundaries
+* **Persistence layer**: SQLAlchemy 2.0 (sync)
+* **Worker**: background polling consumer for transactional outbox
 
-Health check:
-curl -s http://127.0.0.1:8000/health
+Dependencies flow strictly downward.
 
-## Demo automatica (consigliata)
+---
 
-Esegue workflow completo:
-./reset_demo.sh
-./demo.sh
+## 3. Core Features
 
+### Domain
 
-Mostra:
-- Creazione Supplier
-- Creazione NC (severity=low)
-- Consumo evento NC_CREATED
-- Chiusura NC
-- Aggiornamento certificazione via PATCH
-- KPI che passa da suppliers_at_risk=0 a 1
+* Suppliers
+* Non-Conformities (NCs)
+* Audit Log
+* KPI aggregation
+* Risk detection logic
 
-Demo manuale (API → Outbox → Worker → Audit)
-1) Crea fornitore
-curl -s -X POST http://127.0.0.1:8000/suppliers \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Beta Metals","certification_expiry":"2026-06-30"}'
+### API
 
-2) Crea NC
-curl -s -X POST http://127.0.0.1:8000/ncs \
-  -H "Content-Type: application/json" \
-  -d '{"supplier_id":1,"severity":"high","description":"Certificato materiale mancante"}'
+* CRUD-style endpoints (minimalistic)
+* Pagination (`limit`, `offset`)
+* Optional filters (`/ncs?status=OPEN&severity=high`)
+* Read-only audit log (`/audit-log`)
 
-3) Avvia worker
-python worker.py
+### Security
 
-4) Aggiorna certificazione (PATCH parziale)
-curl -s -X PATCH http://127.0.0.1:8000/suppliers/1/certification \
-  -H "Content-Type: application/json" \
-  -d '{"certification_expiry":"2020-01-01"}'
+* JWT authentication
+* Static demo users
+* RBAC enforcement per endpoint
 
-## Verifica DB (opzionale)
-sqlite3 qhse_demo.sqlite3 "select id,event_type,status from outbox_events;"
-sqlite3 qhse_demo.sqlite3 "select id,action,entity_type,entity_id from audit_log;"
+### Reliability
 
-## Decisioni architetturali
+* Transactional Outbox pattern
+* Idempotent worker processing
+* Deterministic tests
 
-Outbox pattern
-Evento persistito nella stessa transazione dei dati business.
+---
 
-Worker idempotente
-Deduplica tramite tabella processed_events.
+## 4. Security Model (JWT + RBAC)
 
-Audit trail append-only
-Registro verificabile delle azioni di sistema.
+Authentication is handled via JWT (HS256).
 
-## Nota
-Il design è broker-agnostico: il worker polling può essere sostituito da un message broker (Kafka, RabbitMQ, ecc.) senza modificare il modello dati o il pattern Outbox.
+Demo users:
 
-## Documentazione
-[Reliability Guarantees](docs/reliability-guarantees.md)
+| Username    | Role        |
+| ----------- | ----------- |
+| quality     | quality     |
+| procurement | procurement |
+| auditor     | auditor     |
+| admin       | admin       |
+
+RBAC is enforced via dependency injection.
+
+Examples:
+
+* `/suppliers` write → `procurement`, `admin`
+* `/ncs` write → `quality`, `admin`
+* `/kpi` read → `auditor`, `quality`, `admin`
+* `/audit-log` read → `auditor`, `admin`
+
+This is minimal but structurally correct RBAC.
+
+---
+
+## 5. Consistency Model — Transactional Outbox
+
+Side effects are not executed directly inside business logic.
+
+Instead:
+
+1. A domain event is written to `outbox_events` within the same DB transaction.
+2. A background worker polls pending events.
+3. The worker processes them.
+4. Processed events are recorded for idempotency.
+
+This ensures:
+
+* No partial commits
+* Safe retries
+* Failure isolation
+* Deterministic processing
+
+This is a simplified but production-realistic reliability pattern.
+
+---
+
+## 6. Running the System
+
+### Recommended: Docker Compose
+
+```bash
+docker compose up --build
+```
+
+Services:
+
+* `postgres`
+* `api`
+* `worker`
+* `migrate` (Alembic baseline)
+
+API available at:
+
+```
+http://localhost:8000
+http://localhost:8000/docs
+```
+
+Swagger UI includes Bearer JWT authorization.
+
+---
+
+### Local Development (without Docker)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pytest -q
+```
+
+---
+
+## 7. API Overview
+
+### Auth
+
+```
+POST /auth/login
+```
+
+Returns JWT.
+
+### Suppliers
+
+```
+POST   /suppliers
+GET    /suppliers
+GET    /suppliers/{id}
+PATCH  /suppliers/{id}/certification
+```
+
+### Non-Conformities
+
+```
+POST   /ncs
+PATCH  /ncs/{id}/close
+GET    /ncs?status=OPEN&severity=high
+```
+
+### Audit Log
+
+```
+GET /audit-log?limit=20&offset=0
+```
+
+### KPI
+
+```
+GET /kpi
+```
+
+Aggregates:
+
+* Open NCs
+* High severity NCs
+* Closed NCs
+* Outbox state
+* Suppliers at risk
+
+---
+
+## 8. Testing Strategy
+
+Tests use:
+
+* SQLite (isolated per test run)
+* Deterministic auth
+* Transactional session fixture
+* Worker idempotency verification
+* RBAC smoke tests
+
+Tests validate:
+
+* Outbox not written on rollback
+* Worker idempotency
+* RBAC enforcement
+* Filter correctness
+* Pagination behavior
+
+All tests are expected to pass with:
+
+```bash
+pytest -q
+```
+
+---
+
+## 9. Design Decisions & Trade-offs
+
+### Why SQLAlchemy Sync?
+
+* Simpler mental model
+* Deterministic transaction handling
+* No async DB complexity for this scope
+
+### Why SQLite for Tests?
+
+* Fast
+* Isolated
+* No external dependency
+* Reproducible
+
+### Why Postgres in Docker?
+
+* Production-realistic behavior
+* Real DDL and type enforcement
+* Separate from test environment
+
+### Why Static Users?
+
+* Demo simplicity
+* Focus on RBAC structure, not user management
+
+### What Would Change in Production?
+
+* Persistent user model
+* Refresh tokens
+* Centralized logging
+* Observability (metrics/tracing)
+* Structured audit metadata
+* Background worker orchestration (e.g., queue-based)
+
+---
+
+## 10. Purpose of This Project
+
+This is not a CRUD tutorial.
+
+It is a small but coherent example of:
+
+* Layered backend architecture
+* Explicit transaction boundaries
+* Reliability-oriented design
+* Clear role-based authorization
+* Separation of sync API and async processing
+
+It is intended as a discussion base for backend architecture interviews.
+
+#### What This Project Is NOT
+
+This project is intentionally scoped.
+
+It is not:
+
+- ❌ A production-ready identity system  
+  (Users are static. No password hashing lifecycle, no refresh tokens, no IAM integration.)
+
+- ❌ A high-throughput event streaming system  
+  (No Kafka, no RabbitMQ, no distributed message broker.)
+
+- ❌ An async-first microservices architecture  
+  (The system uses synchronous SQLAlchemy by design for clarity of transaction boundaries.)
+
+- ❌ A horizontally scalable event processor  
+  (The worker uses a polling model and a single database as coordination layer.)
+
+- ❌ A feature-complete QHSE platform  
+  (The domain is intentionally minimal to focus on architecture.)
+
+- ❌ A CRUD tutorial  
+  (The goal is reliability patterns, not endpoint count.)
+
+---
+
+#### Why These Choices?
+
+The project prioritizes:
+- Explicit transaction boundaries
+- Atomic domain + event persistence
+- Idempotent background processing
+- Clear RBAC enforcement at API boundary
+- Deterministic behavior under failure
+
+It intentionally favors architectural clarity over feature density.
+
+---
+
+#### How It Would Evolve in Production
+
+If evolved toward production scale, the system would likely introduce:
+
+- External identity provider
+- Token rotation and refresh
+- Message broker instead of DB polling
+- Observability stack (metrics, tracing)
+- Retry backoff strategies
+- Dead-letter queue
+- Horizontal worker scaling
+- Read replicas for analytics endpoints
+
+These extensions are deliberately excluded to keep the architectural core visible and reviewable.
