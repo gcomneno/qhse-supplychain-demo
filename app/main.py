@@ -1,13 +1,24 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from app.api.routes_suppliers import router as suppliers_router
 from app.api.routes_ncs import router as ncs_router
 from app.api.routes_kpi import router as kpi_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_audit_log import router as audit_log_router
+from app.db import get_session
+from app.settings import get_settings
 
 
 app = FastAPI(title="QHSE Supply Chain - Demo")
@@ -21,7 +32,102 @@ app.include_router(audit_log_router)
 
 @app.get("/health")
 def health():
+    # Backward compatible legacy endpoint
     return {"status": "ok"}
+
+
+@app.get("/healthz")
+def healthz():
+    # Liveness: process is up
+    return {"status": "ok"}
+
+
+def _project_root() -> Path:
+    # app/main.py -> parent is app/, parent[1] is repo root
+    return Path(__file__).resolve().parents[1]
+
+
+def _db_ping() -> bool:
+    try:
+        with get_session() as s:
+            s.execute(text("SELECT 1"))
+        return True
+    except SQLAlchemyError:
+        return False
+
+
+def _alembic_code_head() -> str | None:
+    """
+    Return the migrations head revision as seen by code (migrations/).
+    In docker image we expect alembic.ini + migrations/ to be present.
+    """
+    root = _project_root()
+    alembic_ini = root / "alembic.ini"
+    if not alembic_ini.exists():
+        return None
+
+    cfg = Config(str(alembic_ini))
+    script = ScriptDirectory.from_config(cfg)
+    return script.get_current_head()
+
+
+def _alembic_db_revision() -> str | None:
+    """
+    Return DB revision from alembic_version.version_num.
+    Returns None if table missing or query fails.
+    """
+    try:
+        with get_session() as s:
+            row = s.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).first()
+            return row[0] if row else None
+    except SQLAlchemyError:
+        return None
+
+
+@app.get("/readyz")
+def readyz():
+    """
+    Readiness:
+    - always checks DB connectivity
+    - checks migrations alignment when ENV != 'test'
+      (tests use SQLite deterministic setup and may not have alembic_version)
+    """
+    settings = get_settings()
+
+    details: dict[str, Any] = {
+        "status": "ready",
+        "checks": {
+            "db": {"ok": False},
+            "migrations": {"ok": True, "skipped": False},
+        },
+    }
+
+    # 1) DB connectivity
+    db_ok = _db_ping()
+    details["checks"]["db"]["ok"] = db_ok
+    if not db_ok:
+        details["status"] = "not_ready"
+        return JSONResponse(status_code=503, content=details)
+
+    # 2) Migrations (skip in tests)
+    if settings.ENV == "test":
+        details["checks"]["migrations"]["skipped"] = True
+        return details
+
+    code_head = _alembic_code_head()
+    db_rev = _alembic_db_revision()
+
+    details["checks"]["migrations"]["code_head"] = code_head
+    details["checks"]["migrations"]["db_revision"] = db_rev
+
+    mig_ok = bool(code_head) and bool(db_rev) and (code_head == db_rev)
+    details["checks"]["migrations"]["ok"] = mig_ok
+
+    if not mig_ok:
+        details["status"] = "not_ready"
+        return JSONResponse(status_code=503, content=details)
+
+    return details
 
 
 def custom_openapi():
@@ -59,5 +165,6 @@ def custom_openapi():
 
     app.openapi_schema = schema
     return app.openapi_schema
+
 
 app.openapi = custom_openapi
