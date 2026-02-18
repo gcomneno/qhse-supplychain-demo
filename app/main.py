@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import logging
+import uuid
 
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
@@ -12,6 +14,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+
 from app.api.routes_suppliers import router as suppliers_router
 from app.api.routes_ncs import router as ncs_router
 from app.api.routes_kpi import router as kpi_router
@@ -19,6 +25,7 @@ from app.api.routes_auth import router as auth_router
 from app.api.routes_audit_log import router as audit_log_router
 from app.db import get_session
 from app.settings import get_settings
+from app.logging_utils import configure_logging, set_request_id
 
 
 app = FastAPI(title="QHSE Supply Chain - Demo")
@@ -28,6 +35,27 @@ app.include_router(kpi_router)
 app.include_router(ncs_router)
 app.include_router(auth_router)
 app.include_router(audit_log_router)
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        settings = get_settings()
+        header = settings.REQUEST_ID_HEADER
+
+        rid = request.headers.get(header)
+        if not rid:
+            rid = str(uuid.uuid4())
+
+        set_request_id(rid)
+
+        try:
+            response: Response = await call_next(request)
+        finally:
+            # Avoid leaking request_id to other requests in same worker thread
+            set_request_id(None)
+
+        response.headers[header] = rid
+        return response
 
 
 @app.get("/health")
@@ -167,4 +195,9 @@ def custom_openapi():
     return app.openapi_schema
 
 
+settings = get_settings()
+configure_logging(level=settings.LOG_LEVEL, json_logs=settings.LOG_JSON)
+logger = logging.getLogger("qhse.api")
+
 app.openapi = custom_openapi
+app.add_middleware(RequestIdMiddleware)

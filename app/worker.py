@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import time
+import logging
+import uuid
+
 from datetime import datetime, timezone, timedelta
 from typing import List
 
@@ -11,6 +14,7 @@ from app.db import get_session
 from app.models import OutboxEvent, ProcessedEvent
 from app.events.handlers import handle_nc_created, handle_nc_closed, handle_supplier_cert_updated
 from app.settings import get_settings
+from app.logging_utils import configure_logging, set_request_id
 
 
 def utcnow() -> datetime:
@@ -114,6 +118,9 @@ def run_once(limit: int | None = None) -> int:
     processed = 0
     worker_id = "worker"  # demo: stable id; could be hostname/pid later
 
+    batch_rid = f"worker:{uuid.uuid4()}"
+    set_request_id(batch_rid)
+
     # 1) Atomically claim candidate IDs in a single transaction.
     with get_session() as session:
         event_ids = claim_outbox_ids(
@@ -149,11 +156,19 @@ def run_once(limit: int | None = None) -> int:
                 session.flush()
                 print(f"[worker] error processing event id={ev.id} type={ev.event_type}: {e}")
 
+    set_request_id(None)
+
     return processed
 
 
 def main() -> None:
     print("[worker] starting (polling mode). CTRL+C to stop.")
+
+    settings = get_settings()
+    configure_logging(level=settings.LOG_LEVEL, json_logs=settings.LOG_JSON)
+    logger = logging.getLogger("qhse.worker")
+    logger.info("worker starting", extra={"status": "starting"})
+
     while True:
         n = run_once()
         if n:

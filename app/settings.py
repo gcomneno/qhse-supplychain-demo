@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     OUTBOX_LOCK_TIMEOUT_SEC: int = 30
     OUTBOX_MAX_ATTEMPTS: int = 5
 
+    LOG_LEVEL: str = "INFO"
+    LOG_JSON: bool = True
+    REQUEST_ID_HEADER: str = "X-Request-ID"
+
 
 @lru_cache
 def get_settings() -> Settings:
