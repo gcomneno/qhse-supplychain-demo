@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, UTC
 from typing import Optional
+import json
 
 from sqlalchemy import (
     DateTime,
@@ -14,6 +15,8 @@ from sqlalchemy import (
     Index,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from app.logging_utils import get_request_id
 
 
 class Base(DeclarativeBase):
@@ -101,6 +104,24 @@ class AuditLog(Base):
         Index("ix_audit_entity", "entity_type", "entity_id"),
         Index("ix_audit_created_at", "created_at"),
     )
+
+    def __init__(self, **kwargs):
+        """
+        Auto-inject request_id (if present in contextvar)
+        inside meta_json without breaking existing meta.
+        """
+        meta_raw = kwargs.get("meta_json", "{}")
+        try:
+            meta = json.loads(meta_raw) if meta_raw else {}
+        except Exception:
+            meta = {}
+
+        rid = get_request_id()
+        if rid and "request_id" not in meta:
+            meta["request_id"] = rid
+
+        kwargs["meta_json"] = json.dumps(meta, ensure_ascii=False)
+        super().__init__(**kwargs)
 
 
 class ProcessedEvent(Base):
