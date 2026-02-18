@@ -7,7 +7,7 @@ init:
 	python scripts/init_db.py
 
 worker:
-	python worker.py
+	python app.worker.py
 
 demo:
 	./demo.sh

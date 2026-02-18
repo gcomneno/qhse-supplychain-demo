@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import worker
+import app.worker as worker
 
 from app.db import get_session
 from app.models import AuditLog, OutboxEvent, ProcessedEvent

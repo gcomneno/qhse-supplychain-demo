@@ -58,7 +58,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    command: ["python", "worker.py"]
+    command: ["python", "-m", "app.worker"]
     restart: on-failure:3
 
 volumes:

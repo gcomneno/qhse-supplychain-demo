@@ -58,7 +58,7 @@ say "Outbox events (latest)"
 sqlite3 "$DB_FILE" "select id,event_type,status,attempts,created_at from outbox_events order by id desc limit 5;"
 
 say "Run worker once (2 seconds)"
-python worker.py >/dev/null 2>&1 & WPID=$!
+python app.worker.py >/dev/null 2>&1 & WPID=$!
 sleep 2
 kill "$WPID" >/dev/null 2>&1 || true
 wait "$WPID" >/dev/null 2>&1 || true
@@ -82,7 +82,7 @@ curl -s -X PATCH "$BASE_URL/suppliers/$SUPPLIER_ID/certification" \
   -d '{"certification_expiry":"2020-01-01"}' ; echo
 
 say "Run worker once (2 seconds) to process SUPPLIER_CERT_UPDATED"
-python worker.py >/dev/null 2>&1 & WPID=$!
+python app.worker.py >/dev/null 2>&1 & WPID=$!
 sleep 2
 kill "$WPID" >/dev/null 2>&1 || true
 wait "$WPID" >/dev/null 2>&1 || true

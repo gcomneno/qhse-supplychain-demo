@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 
-import worker
+import app.worker as worker
 
 from app.db import get_session
 from app.models import OutboxEvent, ProcessedEvent

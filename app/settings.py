@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     JWT_ALG: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MIN: int = 60
 
+    OUTBOX_BATCH_SIZE: int = 10
+    OUTBOX_LOCK_TIMEOUT_SEC: int = 30
+    OUTBOX_MAX_ATTEMPTS: int = 5
+
 
 @lru_cache
 def get_settings() -> Settings:

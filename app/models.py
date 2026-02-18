@@ -1,3 +1,4 @@
+# app/models.py
 from __future__ import annotations
 
 from datetime import datetime, UTC
@@ -64,8 +65,13 @@ class OutboxEvent(Base):
     event_type: Mapped[str] = mapped_column(String(100), nullable=False)  # e.g. NC_CREATED
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # PENDING / PROCESSING / DONE / FAILED
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Lock/claim metadata (for multi-worker safety)
+    locked_by: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    locked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC), nullable=False)
     processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -73,6 +79,7 @@ class OutboxEvent(Base):
     __table_args__ = (
         Index("ix_outbox_status", "status"),
         Index("ix_outbox_created_at", "created_at"),
+        Index("ix_outbox_status_locked_at", "status", "locked_at"),
     )
 
 
