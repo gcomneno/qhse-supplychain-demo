@@ -1,6 +1,6 @@
-from opentelemetry import trace
+from __future__ import annotations
+
 from opentelemetry.trace import get_current_span
-from contextvars import ContextVar
 
 from app.observability.request_context import request_id_var
 
