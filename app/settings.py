@@ -24,7 +24,8 @@ class Settings(BaseSettings):
     LOG_JSON: bool = True
     REQUEST_ID_HEADER: str = "X-Request-ID"
 
-    ENABLE_TRACING: bool = False
+    ENABLE_TRACING: bool = True
+    TRACE_SAMPLING: float = 1.0
 
 
 @lru_cache
