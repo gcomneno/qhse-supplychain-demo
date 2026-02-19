@@ -8,7 +8,10 @@ from opentelemetry.instrumentation.logging import LoggingInstrumentor
 SERVICE_NAME = "qhse-supplychain-demo"
 
 
-def setup_tracing(app):
+def setup_tracing(app, *, enabled: bool = True):
+    if not enabled:
+        return
+     
     resource = Resource.create(
         {
             "service.name": SERVICE_NAME,
