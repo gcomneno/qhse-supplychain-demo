@@ -23,6 +23,8 @@ from starlette.responses import Response
 
 from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest, Counter, Histogram
 
+from app.observability.tracing import setup_tracing
+
 from app.api.routes_suppliers import router as suppliers_router
 from app.api.routes_ncs import router as ncs_router
 from app.api.routes_kpi import router as kpi_router
@@ -53,6 +55,8 @@ REQUEST_ID_HEADER = "X-Request-Id"
 
 
 app = FastAPI(title="QHSE Supply Chain - Demo")
+
+setup_tracing(app)
 
 app.include_router(suppliers_router)
 app.include_router(kpi_router)
