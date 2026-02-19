@@ -89,7 +89,6 @@ def health():
 
 @app.get("/healthz")
 def healthz():
-    # Liveness: process is up
     return {"status": "ok"}
 
 
