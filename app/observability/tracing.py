@@ -4,10 +4,9 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExport
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
-from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
+from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
 from app.settings import get_settings
-
 
 
 SERVICE_NAME = "qhse-supplychain-demo"
@@ -27,7 +26,7 @@ def setup_tracing(app, *, enabled: bool = True):
 
     provider = TracerProvider(
         resource=resource,
-        sampler=TraceIdRatioBased(settings.TRACE_SAMPLING),
+        sampler=ParentBased(TraceIdRatioBased(settings.TRACE_SAMPLING)),
     )
     trace.set_tracer_provider(provider)
 
