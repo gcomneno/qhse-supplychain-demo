@@ -55,14 +55,18 @@ REQUEST_ID_HEADER = "X-Request-Id"
 
 
 app = FastAPI(title="QHSE Supply Chain - Demo")
-
-setup_tracing(app)
-
 app.include_router(suppliers_router)
 app.include_router(kpi_router)
 app.include_router(ncs_router)
 app.include_router(auth_router)
 app.include_router(audit_log_router)
+
+settings = get_settings()
+
+setup_tracing(app, enabled=settings.ENABLE_TRACING)
+
+configure_logging(level=settings.LOG_LEVEL, json_logs=settings.LOG_JSON)
+logger = logging.getLogger("qhse.api")
 
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
@@ -186,6 +190,23 @@ def readyz():
     return details
 
 
+@app.middleware("http")
+async def prometheus_http_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    elapsed = time.perf_counter() - start
+
+    route_obj = request.scope.get("route")
+    route = getattr(route_obj, "path", request.url.path)
+    method = request.method
+    status_code = str(response.status_code)
+
+    HTTP_REQUESTS_TOTAL.labels(method=method, route=route, status_code=status_code).inc()
+    HTTP_REQUEST_DURATION_SECONDS.labels(method=method, route=route).observe(elapsed)
+
+    return response
+
+
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
@@ -222,27 +243,6 @@ def custom_openapi():
     app.openapi_schema = schema
     return app.openapi_schema
 
-
-@app.middleware("http")
-async def prometheus_http_middleware(request: Request, call_next):
-    start = time.perf_counter()
-    response = await call_next(request)
-    elapsed = time.perf_counter() - start
-
-    route_obj = request.scope.get("route")
-    route = getattr(route_obj, "path", request.url.path)
-    method = request.method
-    status_code = str(response.status_code)
-
-    HTTP_REQUESTS_TOTAL.labels(method=method, route=route, status_code=status_code).inc()
-    HTTP_REQUEST_DURATION_SECONDS.labels(method=method, route=route).observe(elapsed)
-
-    return response
-
-
-settings = get_settings()
-configure_logging(level=settings.LOG_LEVEL, json_logs=settings.LOG_JSON)
-logger = logging.getLogger("qhse.api")
 
 app.openapi = custom_openapi
 app.add_middleware(RequestIdMiddleware)
