@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import uuid
+
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Optional
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
@@ -19,6 +25,7 @@ from app.api.routes_auth import router as auth_router
 from app.api.routes_audit_log import router as audit_log_router
 from app.db import get_session
 from app.settings import get_settings
+from app.observability.request_context import request_id_var
 
 
 app = FastAPI(title="QHSE Supply Chain - Demo")
@@ -28,6 +35,25 @@ app.include_router(kpi_router)
 app.include_router(ncs_router)
 app.include_router(auth_router)
 app.include_router(audit_log_router)
+
+
+REQUEST_ID_HEADER = "X-Request-Id"
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: Callable):
+        incoming: Optional[str] = request.headers.get(REQUEST_ID_HEADER)
+        request_id = incoming.strip() if incoming and incoming.strip() else str(uuid.uuid4())
+
+        request.state.request_id = request_id
+        token = request_id_var.set(request_id)
+        try:
+            response: Response = await call_next(request)
+        finally:
+            request_id_var.reset(token)
+
+        response.headers[REQUEST_ID_HEADER] = request_id
+        return response
 
 
 @app.get("/health")
@@ -168,3 +194,4 @@ def custom_openapi():
 
 
 app.openapi = custom_openapi
+app.add_middleware(RequestIdMiddleware)
