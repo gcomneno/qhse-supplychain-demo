@@ -1,17 +1,16 @@
 from __future__ import annotations
 
+import logging
 import uuid
+import time
 
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
-
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
+
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -29,9 +28,26 @@ from app.api.routes_ncs import router as ncs_router
 from app.api.routes_kpi import router as kpi_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_audit_log import router as audit_log_router
+
 from app.db import get_session
+
+from app.logging_utils import configure_logging
 from app.settings import get_settings
+
 from app.observability.request_context import request_id_var
+
+
+HTTP_REQUESTS_TOTAL = Counter(
+    "http_requests_total",
+    "Total HTTP requests",
+    ["method", "route", "status_code"],
+)
+
+HTTP_REQUEST_DURATION_SECONDS = Histogram(
+    "http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    ["method", "route"],
+)
 
 
 app = FastAPI(title="QHSE Supply Chain - Demo")
@@ -41,9 +57,6 @@ app.include_router(kpi_router)
 app.include_router(ncs_router)
 app.include_router(auth_router)
 app.include_router(audit_log_router)
-
-
-REQUEST_ID_HEADER = "X-Request-Id"
 
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
