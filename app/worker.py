@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+
 from datetime import datetime, timedelta, timezone
 from typing import List
 
@@ -18,6 +19,8 @@ from app.events.handlers import (
 from app.logging_utils import configure_logging, set_request_id
 from app.models import OutboxEvent, ProcessedEvent
 from app.settings import get_settings
+from app.observability.worker_tracing import setup_worker_tracing
+
 
 logger = logging.getLogger("qhse.worker")
 
@@ -175,14 +178,23 @@ def run_once(limit: int | None = None) -> int:
 
 def main() -> None:
     settings = get_settings()
+
+    # 1) logging prima (perché configure_logging() resetta gli handler)
     configure_logging(level=settings.LOG_LEVEL, json_logs=settings.LOG_JSON)
+
+    # 2) tracing dopo
+    setup_worker_tracing(enabled=settings.ENABLE_TRACING)
 
     logger.info("worker starting", extra={"status": "starting"})
 
+    from opentelemetry import trace
+    tracer = trace.get_tracer("qhse.worker")
+
     while True:
-        n = run_once()
-        if n:
-            logger.info("batch processed", extra={"status": "processed", "count": n})
+        with tracer.start_as_current_span("worker.loop"):
+            n = run_once()
+            if n:
+                logger.info("batch processed", extra={"status": "processed", "count": n})
         time.sleep(1.0)
 
 
