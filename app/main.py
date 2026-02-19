@@ -49,6 +49,8 @@ HTTP_REQUEST_DURATION_SECONDS = Histogram(
     ["method", "route"],
 )
 
+REQUEST_ID_HEADER = "X-Request-Id"
+
 
 app = FastAPI(title="QHSE Supply Chain - Demo")
 
