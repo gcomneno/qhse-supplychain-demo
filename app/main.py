@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+
 import logging
 import uuid
+import time
 
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
@@ -18,6 +20,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest, Counter, Histogram
+
 from app.api.routes_suppliers import router as suppliers_router
 from app.api.routes_ncs import router as ncs_router
 from app.api.routes_kpi import router as kpi_router
@@ -26,6 +30,20 @@ from app.api.routes_audit_log import router as audit_log_router
 from app.db import get_session
 from app.settings import get_settings
 from app.logging_utils import configure_logging, set_request_id
+
+
+
+HTTP_REQUESTS_TOTAL = Counter(
+    "http_requests_total",
+    "Total HTTP requests",
+    ["method", "route", "status_code"],
+)
+
+HTTP_REQUEST_DURATION_SECONDS = Histogram(
+    "http_request_duration_seconds",
+    "HTTP request duration in seconds",
+    ["method", "route"],
+)
 
 
 app = FastAPI(title="QHSE Supply Chain - Demo")
@@ -68,6 +86,12 @@ def health():
 def healthz():
     # Liveness: process is up
     return {"status": "ok"}
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics():
+    data = generate_latest(REGISTRY)
+    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
 
 
 def _project_root() -> Path:
@@ -193,6 +217,23 @@ def custom_openapi():
 
     app.openapi_schema = schema
     return app.openapi_schema
+
+
+@app.middleware("http")
+async def prometheus_http_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    elapsed = time.perf_counter() - start
+
+    route_obj = request.scope.get("route")
+    route = getattr(route_obj, "path", request.url.path)
+    method = request.method
+    status_code = str(response.status_code)
+
+    HTTP_REQUESTS_TOTAL.labels(method=method, route=route, status_code=status_code).inc()
+    HTTP_REQUEST_DURATION_SECONDS.labels(method=method, route=route).observe(elapsed)
+
+    return response
 
 
 settings = get_settings()
