@@ -25,3 +25,8 @@ psycopg-binary==3.3.2
 PyJWT==2.8.0
 pydantic-settings==2.3.4
 prometheus-client==0.22.1
+opentelemetry-api==1.25.0
+opentelemetry-sdk==1.25.0
+opentelemetry-instrumentation-fastapi==0.46b0
+opentelemetry-instrumentation-asgi==0.46b0
+opentelemetry-instrumentation-logging==0.46b0
