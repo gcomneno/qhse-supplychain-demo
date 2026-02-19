@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import json
 
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -8,8 +9,10 @@ from sqlalchemy import select, func
 
 from app.models import Supplier
 from app.models import NonConformity
+from app.models import AuditLog
 
 from app.events.outbox import enqueue_event
+from app.logging_utils import get_request_id
 
 
 def create_supplier(session: Session, name: str, certification_expiry: str | None) -> Supplier:
@@ -71,10 +74,15 @@ def update_supplier_certification(session: Session, supplier_id: int, certificat
     s.certification_expiry = certification_expiry
     session.flush()
 
+    payload = {"supplier_id": s.id, "certification_expiry": s.certification_expiry}
+    rid = get_request_id()
+    if rid:
+        payload["request_id"] = rid
+
     enqueue_event(
         session,
         event_type="SUPPLIER_CERT_UPDATED",
-        payload={"supplier_id": s.id, "certification_expiry": s.certification_expiry},
+        payload=payload,
     )
     return s
 

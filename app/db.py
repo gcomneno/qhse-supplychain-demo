@@ -12,7 +12,13 @@ _settings = get_settings()
 
 engine = create_engine(_settings.DATABASE_URL, future=True)
 
-SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+SessionLocal = sessionmaker(
+    bind=engine,
+    autoflush=False,
+    autocommit=False,
+    future=True,
+    expire_on_commit=False,  # <-- evita DetachedInstanceError su response models
+)
 
 
 @contextmanager

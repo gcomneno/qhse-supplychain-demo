@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+import logging
 import time
-from datetime import datetime, timezone, timedelta
+import uuid
+from datetime import datetime, timedelta, timezone
 from typing import List
 
-from sqlalchemy import select, or_, and_
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
+from app.events.handlers import (
+    handle_nc_closed,
+    handle_nc_created,
+    handle_supplier_cert_updated,
+)
+from app.logging_utils import configure_logging, set_request_id
 from app.models import OutboxEvent, ProcessedEvent
-from app.events.handlers import handle_nc_created, handle_nc_closed, handle_supplier_cert_updated
 from app.settings import get_settings
+
+logger = logging.getLogger("qhse.worker")
 
 
 def utcnow() -> datetime:
@@ -96,7 +105,6 @@ def claim_outbox_ids(
 
     claimed_ids: List[int] = []
     for ev in rows:
-        # Claim it (or reclaim it)
         ev.status = "PROCESSING"
         ev.locked_by = worker_id
         ev.locked_at = now
@@ -114,50 +122,67 @@ def run_once(limit: int | None = None) -> int:
     processed = 0
     worker_id = "worker"  # demo: stable id; could be hostname/pid later
 
-    # 1) Atomically claim candidate IDs in a single transaction.
-    with get_session() as session:
-        event_ids = claim_outbox_ids(
-            session,
-            limit=batch,
-            worker_id=worker_id,
-            lock_timeout_sec=settings.OUTBOX_LOCK_TIMEOUT_SEC,
-        )
-
-    # 2) Process each claimed event in its own transaction/session (1-event-1-transaction semantics).
-    for outbox_id in event_ids:
+    batch_rid = f"worker:{uuid.uuid4()}"
+    set_request_id(batch_rid)
+    try:
+        # 1) Atomically claim candidate IDs in a single transaction.
         with get_session() as session:
-            ev = session.get(OutboxEvent, outbox_id)
-            if ev is None:
-                continue
+            event_ids = claim_outbox_ids(
+                session,
+                limit=batch,
+                worker_id=worker_id,
+                lock_timeout_sec=settings.OUTBOX_LOCK_TIMEOUT_SEC,
+            )
 
-            # If status changed unexpectedly, skip.
-            if ev.status != "PROCESSING":
-                continue
+        # 2) Process each claimed event in its own transaction/session (1-event-1-transaction semantics).
+        for outbox_id in event_ids:
+            with get_session() as session:
+                ev = session.get(OutboxEvent, outbox_id)
+                if ev is None:
+                    continue
 
-            try:
-                process_one_event(session, ev)
-                processed += 1
-            except Exception as e:
-                # Release lock; either requeue or fail permanently.
-                if ev.attempts >= settings.OUTBOX_MAX_ATTEMPTS:
-                    ev.status = "FAILED"
-                else:
-                    ev.status = "PENDING"
+                if ev.status != "PROCESSING":
+                    continue
 
-                ev.locked_by = None
-                ev.locked_at = None
-                session.flush()
-                print(f"[worker] error processing event id={ev.id} type={ev.event_type}: {e}")
+                try:
+                    process_one_event(session, ev)
+                    processed += 1
+                except Exception:
+                    # Release lock; either requeue or fail permanently.
+                    if ev.attempts >= settings.OUTBOX_MAX_ATTEMPTS:
+                        ev.status = "FAILED"
+                    else:
+                        ev.status = "PENDING"
 
-    return processed
+                    ev.locked_by = None
+                    ev.locked_at = None
+                    session.flush()
+
+                    logger.exception(
+                        "error processing event",
+                        extra={
+                            "outbox_id": ev.id,
+                            "event_type": ev.event_type,
+                            "status": ev.status,
+                            "attempts": ev.attempts,
+                        },
+                    )
+
+        return processed
+    finally:
+        set_request_id(None)
 
 
 def main() -> None:
-    print("[worker] starting (polling mode). CTRL+C to stop.")
+    settings = get_settings()
+    configure_logging(level=settings.LOG_LEVEL, json_logs=settings.LOG_JSON)
+
+    logger.info("worker starting", extra={"status": "starting"})
+
     while True:
         n = run_once()
         if n:
-            print(f"[worker] processed {n} event(s)")
+            logger.info("batch processed", extra={"status": "processed", "count": n})
         time.sleep(1.0)
 
 

@@ -24,3 +24,4 @@ psycopg==3.3.2
 psycopg-binary==3.3.2
 PyJWT==2.8.0
 pydantic-settings==2.3.4
+prometheus-client==0.22.1

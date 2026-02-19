@@ -18,6 +18,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+
+from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest, Counter, Histogram
+
 from app.api.routes_suppliers import router as suppliers_router
 from app.api.routes_ncs import router as ncs_router
 from app.api.routes_kpi import router as kpi_router
@@ -66,6 +72,12 @@ def health():
 def healthz():
     # Liveness: process is up
     return {"status": "ok"}
+
+
+@app.get("/metrics", include_in_schema=False)
+def metrics():
+    data = generate_latest(REGISTRY)
+    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
 
 
 def _project_root() -> Path:
@@ -193,5 +205,27 @@ def custom_openapi():
     return app.openapi_schema
 
 
+@app.middleware("http")
+async def prometheus_http_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    elapsed = time.perf_counter() - start
+
+    route_obj = request.scope.get("route")
+    route = getattr(route_obj, "path", request.url.path)
+    method = request.method
+    status_code = str(response.status_code)
+
+    HTTP_REQUESTS_TOTAL.labels(method=method, route=route, status_code=status_code).inc()
+    HTTP_REQUEST_DURATION_SECONDS.labels(method=method, route=route).observe(elapsed)
+
+    return response
+
+
+settings = get_settings()
+configure_logging(level=settings.LOG_LEVEL, json_logs=settings.LOG_JSON)
+logger = logging.getLogger("qhse.api")
+
 app.openapi = custom_openapi
+app.add_middleware(RequestIdMiddleware)
 app.add_middleware(RequestIdMiddleware)
