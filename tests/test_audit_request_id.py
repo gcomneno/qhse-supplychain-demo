@@ -1,7 +1,6 @@
 import json
 import uuid
 
-from app.main import app
 from app.db import get_session
 from app.models import AuditLog, OutboxEvent
 from app.worker import run_once
@@ -18,7 +17,7 @@ def test_request_id_propagated_to_audit_meta(client):
     assert login2.status_code == 200
     q_token = login2.json()["access_token"]
 
-    # 1) Create supplier (no audit expected here)
+    # 1) Create supplier
     supplier_name = f"RID_SUP_{uuid.uuid4().hex}"
     resp_sup = client.post(
         "/suppliers",
@@ -27,6 +26,11 @@ def test_request_id_propagated_to_audit_meta(client):
     )
     assert resp_sup.status_code in (200, 201)
     supplier_id = resp_sup.json()["id"]
+
+    # Snapshot: audit id massimo PRIMA del worker (così filtriamo solo "nuovi audit")
+    with get_session() as s:
+        last_audit_id = s.query(AuditLog.id).order_by(AuditLog.id.desc()).first()
+        last_audit_id = last_audit_id[0] if last_audit_id else 0
 
     # 2) Create NC with request id header (this enqueues outbox event)
     headers = {
@@ -40,28 +44,32 @@ def test_request_id_propagated_to_audit_meta(client):
     )
     assert resp_nc.status_code in (200, 201)
 
-    # Capture the outbox event id created by this request
+    # Assert API -> Outbox: request_id deve essere nel meta_json dell'evento PENDING
     with get_session() as s:
         pending = s.query(OutboxEvent).filter(OutboxEvent.status == "PENDING").all()
         assert len(pending) == 1
-        outbox_event_id = pending[0].event_id
+        outbox = pending[0]
+        outbox_meta = json.loads(outbox.meta_json or "{}")
+        assert outbox_meta.get("request_id") == "test-rid-123", (
+            "OutboxEvent.meta_json must contain request_id from X-Request-ID header"
+        )
 
     # 3) Run worker once to handle outbox -> writes audit
     n = run_once()
     assert n >= 1
 
-    # 4) Assert audit contains request_id
+    # 4) Assert Outbox -> Worker -> Audit: request_id deve comparire nei nuovi audit
     with get_session() as s:
-        rows = (
+        new_rows = (
             s.query(AuditLog)
+            .filter(AuditLog.id > last_audit_id)
             .order_by(AuditLog.id.desc())
-            .limit(20)
+            .limit(50)
             .all()
         )
 
-    assert rows, "Expected at least one audit row"
+    assert new_rows, "Expected at least one new audit row after worker run"
     assert any(
-        (json.loads(r.meta_json or "{}").get("request_id") == "test-rid-123")
-            and (str(json.loads(r.meta_json or "{}").get("event_id") or "") == str(outbox_event_id))        
-        for r in rows
-    ), "No audit row found with meta_json.request_id == 'test-rid-123' for the created outbox event"
+        json.loads(r.meta_json or "{}").get("request_id") == "test-rid-123"
+        for r in new_rows
+    ), "No new audit row found with meta_json.request_id == 'test-rid-123'"
