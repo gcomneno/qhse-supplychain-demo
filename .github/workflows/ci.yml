@@ -50,6 +50,12 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
           PYTHONUNBUFFERED: "1"
+
+          # forza un project name stabile così compose non “sfarfalla”
+          COMPOSE_PROJECT_NAME: "qhseci"
+
+          # forza i test a colpire il db esposto in localhost
+          DATABASE_URL: "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/qhse"
         run: |
           make test
 
