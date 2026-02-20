@@ -46,29 +46,34 @@ jobs:
           docker --version
           docker compose version
 
-      - name: Run deterministic test suite (force migrations)
+      - name: Run deterministic test suite
         env:
           PYTHONDONTWRITEBYTECODE: "1"
           PYTHONUNBUFFERED: "1"
           COMPOSE_PROJECT_NAME: "qhseci"
-
-          # DEVE essere lo stesso DB usato da pytest
-          DATABASE_URL: "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/qhse"
         run: |
           set -euxo pipefail
 
           docker compose up -d db
 
-          # attesa esplicita (non fidarti del destino)
+          # wait postgres inside the container
           for i in $(seq 1 60); do
-            docker compose exec -T db pg_isready -U postgres && break
+            docker compose exec -T db pg_isready -U "$(docker compose exec -T db printenv POSTGRES_USER || echo postgres)" && break
             sleep 1
           done
 
-          # migrazioni sul DB giusto
+          # discover creds from container env (standard postgres image vars)
+          DB_USER="$(docker compose exec -T db printenv POSTGRES_USER || echo postgres)"
+          DB_PASS="$(docker compose exec -T db printenv POSTGRES_PASSWORD || true)"
+          DB_NAME="$(docker compose exec -T db printenv POSTGRES_DB || echo postgres)"
+
+          # build DATABASE_URL (psycopg)
+          export DATABASE_URL="postgresql+psycopg://${DB_USER}:${DB_PASS}@127.0.0.1:5432/${DB_NAME}"
+
+          echo "DATABASE_URL is set for user=${DB_USER} db=${DB_NAME} (password hidden)"
+
           alembic upgrade head
 
-          # check duro: la tabella deve esistere
           python - <<'PY'
           import os
           import psycopg
@@ -79,7 +84,6 @@ jobs:
               print("to_regclass(public.suppliers) =", cur.fetchone()[0])
           PY
 
-          # ora esegui la tua pipeline standard
           make test
 
       - name: Cleanup docker compose
