@@ -230,7 +230,7 @@ Aggregates:
 
 Tests use:
 
-* SQLite (isolated per test run)
+* Postgresql
 * Deterministic auth
 * Transactional session fixture
 * Worker idempotency verification
@@ -259,13 +259,6 @@ pytest -q
 * Simpler mental model
 * Deterministic transaction handling
 * No async DB complexity for this scope
-
-### Why SQLite for Tests?
-
-* Fast
-* Isolated
-* No external dependency
-* Reproducible
 
 ### Why Postgres in Docker?
 

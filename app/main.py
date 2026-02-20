@@ -150,7 +150,6 @@ def readyz():
     Readiness:
     - always checks DB connectivity
     - checks migrations alignment when ENV != 'test'
-      (tests use SQLite deterministic setup and may not have alembic_version)
     """
     settings = get_settings()
 
@@ -246,4 +245,4 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 app.add_middleware(RequestIdMiddleware)
-app.add_middleware(RequestIdMiddleware)
+

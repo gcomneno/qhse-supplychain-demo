@@ -1,41 +1,128 @@
 # tests/conftest.py
 from __future__ import annotations
 
-from pathlib import Path
+import os
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app import db as app_db
-from app.models import Base
-from app.main import app  # se il tuo entrypoint ha un altro nome, cambia qui
+from app.main import app  # se il tuo entrypoint è diverso, cambia qui
+
+from dotenv import load_dotenv
 
 
-@pytest.fixture()
-def test_engine(tmp_path: Path):
-    db_path = tmp_path / "test.sqlite3"
-    engine = create_engine(
-        f"sqlite:///{db_path}",
-        connect_args={"check_same_thread": False},
-    )
-    Base.metadata.create_all(bind=engine)
-    return engine
+# Carica .env SOLO se presente (locale). In CI di norma non c'è.
+load_dotenv(override=False)
 
 
-@pytest.fixture()
-def client(monkeypatch: pytest.MonkeyPatch, test_engine):
+def _require_test_db_url() -> str:
+    # Demo mode: se TEST_DATABASE_URL non c'è, usiamo DATABASE_URL.
+    url = os.environ.get("TEST_DATABASE_URL") or os.environ.get("DATABASE_URL")
+    if not url:
+        raise RuntimeError(
+            "Serve TEST_DATABASE_URL o DATABASE_URL. "
+            "Esempio: postgresql+psycopg://qhse:qhse@127.0.0.1:5432/qhse"
+        )
+    if url.startswith("sqlite:"):
+        raise RuntimeError("DB per test non può essere SQLite. Postgres-only.")
+    return url
+
+
+@pytest.fixture(scope="session", autouse=True)
+def force_test_database_url():
+    """
+    Durante i test, DATABASE_URL deve essere coerente col DB effettivo usato.
+    Evita interferenze da env 'sporche'.
+    """
+    test_url = _require_test_db_url()
+
+    prev_db_url = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = test_url
+
+    # opzionale: evita rumore/instabilità nei test
+    os.environ.setdefault("ENABLE_TRACING", "0")
+    os.environ.setdefault("TRACE_SAMPLING", "0")
+
+    yield
+
+    if prev_db_url is None:
+        os.environ.pop("DATABASE_URL", None)
+    else:
+        os.environ["DATABASE_URL"] = prev_db_url
+
+
+@pytest.fixture(scope="session")
+def engine():
+    return app_db.get_engine()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def bind_app_db_to_test_engine(engine):
+    """
+    Forza app_db.SessionLocal a puntare al Postgres dei test.
+
+    NOTA: non usiamo la fixture monkeypatch (function-scoped), ma MonkeyPatch manuale.
+    """
+    mp = pytest.MonkeyPatch()
+
     TestingSessionLocal = sessionmaker(
-        bind=test_engine,
+        bind=engine,
         autoflush=False,
         autocommit=False,
         expire_on_commit=False,
         future=True,
     )
 
-    monkeypatch.setattr(app_db, "engine", test_engine, raising=True)
-    monkeypatch.setattr(app_db, "SessionLocal", TestingSessionLocal, raising=True)
+    # Se nel modulo db esiste un attr 'engine' (compat), lo allineiamo.
+    if hasattr(app_db, "engine"):
+        mp.setattr(app_db, "engine", engine, raising=False)
 
+    mp.setattr(app_db, "SessionLocal", TestingSessionLocal, raising=True)
+
+    yield
+
+    mp.undo()
+
+
+@pytest.fixture(autouse=True)
+def db_clean_between_tests(engine):
+    """
+    Reset deterministico tra test:
+    TRUNCATE di tutte le tabelle in schema public (eccetto alembic_version),
+    RESTART IDENTITY, CASCADE.
+    """
+    with engine.connect() as conn:
+        conn = conn.execution_options(isolation_level="AUTOCOMMIT")
+        conn.execute(
+            text(
+                """
+DO $$
+DECLARE
+    stmt text;
+BEGIN
+    SELECT
+        'TRUNCATE TABLE ' ||
+        string_agg(format('%I.%I', schemaname, tablename), ', ') ||
+        ' RESTART IDENTITY CASCADE'
+    INTO stmt
+    FROM pg_tables
+    WHERE schemaname = 'public'
+      AND tablename <> 'alembic_version';
+
+    IF stmt IS NOT NULL THEN
+        EXECUTE stmt;
+    END IF;
+END $$;
+"""
+            )
+        )
+    yield
+
+
+@pytest.fixture()
+def client():
     with TestClient(app) as c:
         yield c

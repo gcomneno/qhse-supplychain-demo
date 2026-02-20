@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     )
 
     ENV: str = "dev"
-    DATABASE_URL: str = "sqlite:///./qhse_demo.sqlite3"
+
+    DATABASE_URL: str = "postgresql+psycopg://qhse:qhse@localhost:5432/qhse"
 
     JWT_SECRET: str = "change-me"
     JWT_ALG: str = "HS256"

@@ -82,7 +82,7 @@ They are meant for container/runtime orchestration and basic monitoring.
 
 `/readyz` behavior:
 - Always checks DB connectivity (`SELECT 1`).
-- In `ENV=test`, it **skips** the migrations alignment check (tests use SQLite deterministic setup).
+- In `ENV=test`, it **skips** the migrations alignment check.
 - In `ENV=docker`/prod-like environments, it checks that the DB Alembic revision matches the code head.
 
 If not ready, `/readyz` returns **503** with a JSON body including check details.

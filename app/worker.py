@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+import json
 
 from datetime import datetime, timedelta, timezone
 from typing import List
@@ -16,7 +17,7 @@ from app.events.handlers import (
     handle_nc_created,
     handle_supplier_cert_updated,
 )
-from app.logging_utils import configure_logging, set_request_id
+from app.logging_utils import configure_logging, set_request_id, get_request_id
 from app.models import OutboxEvent, ProcessedEvent
 from app.settings import get_settings
 from app.observability.worker_tracing import setup_worker_tracing
@@ -74,8 +75,6 @@ def claim_outbox_ids(
     Atomically claim a batch of outbox events.
 
     Postgres: uses SELECT ... FOR UPDATE SKIP LOCKED (true multi-worker safety).
-    SQLite: best-effort claim (tests assume single worker, but reclaim logic still works).
-
     Reclaim rule: PROCESSING events with locked_at older than now - lock_timeout_sec are reclaimable.
     """
     now = utcnow()
@@ -147,7 +146,18 @@ def run_once(limit: int | None = None) -> int:
                 if ev.status != "PROCESSING":
                     continue
 
+                prev_rid = get_request_id()
                 try:
+                    rid = None
+                    if ev.meta_json:
+                        try:
+                            rid = (json.loads(ev.meta_json) or {}).get("request_id")
+                        except Exception:
+                            rid = None
+
+                    if rid:
+                        set_request_id(rid)
+
                     process_one_event(session, ev)
                     processed += 1
                 except Exception:
@@ -170,6 +180,8 @@ def run_once(limit: int | None = None) -> int:
                             "attempts": ev.attempts,
                         },
                     )
+                finally:
+                    set_request_id(prev_rid)
 
         return processed
     finally:
