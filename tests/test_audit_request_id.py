@@ -1,6 +1,5 @@
 import json
 import uuid
-from fastapi.testclient import TestClient
 
 from app.main import app
 from app.db import get_session
@@ -8,9 +7,7 @@ from app.models import AuditLog
 from app.worker import run_once
 
 
-def test_request_id_propagated_to_audit_meta():
-    client = TestClient(app)
-
+def test_request_id_propagated_to_audit_meta(client):
     # procurement crea supplier
     login = client.post("/auth/login", json={"username": "procurement", "password": "procurement"})
     assert login.status_code == 200
