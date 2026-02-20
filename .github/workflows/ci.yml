@@ -27,8 +27,19 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
+
+          # Install runtime deps (if present)
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+          # Install dev/test deps (required for CI)
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          else
+            echo "ERROR: requirements-dev.txt not found (pytest missing)" >&2
+            exit 1
+          fi
+
+          python -m pytest --version
 
       - name: Show Docker / Compose versions
         run: |
