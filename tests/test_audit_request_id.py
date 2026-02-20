@@ -3,7 +3,7 @@ import uuid
 
 from app.main import app
 from app.db import get_session
-from app.models import AuditLog
+from app.models import AuditLog, OutboxEvent
 from app.worker import run_once
 
 
@@ -40,6 +40,12 @@ def test_request_id_propagated_to_audit_meta(client):
     )
     assert resp_nc.status_code in (200, 201)
 
+    # Capture the outbox event id created by this request
+    with get_session() as s:
+        pending = s.query(OutboxEvent).filter(OutboxEvent.status == "PENDING").all()
+        assert len(pending) == 1
+        outbox_event_id = pending[0].event_id
+
     # 3) Run worker once to handle outbox -> writes audit
     n = run_once()
     assert n >= 1
@@ -48,14 +54,14 @@ def test_request_id_propagated_to_audit_meta(client):
     with get_session() as s:
         rows = (
             s.query(AuditLog)
-            .filter(AuditLog.action == "NC_CREATED_HANDLED")
             .order_by(AuditLog.id.desc())
             .limit(20)
             .all()
         )
 
-    assert rows, "Expected at least one NC_CREATED_HANDLED audit row"
+    assert rows, "Expected at least one audit row"
     assert any(
-        json.loads(r.meta_json or "{}").get("request_id") == "test-rid-123"
+        (json.loads(r.meta_json or "{}").get("request_id") == "test-rid-123")
+            and (str(json.loads(r.meta_json or "{}").get("event_id") or "") == str(outbox_event_id))        
         for r in rows
-    ), "No NC_CREATED_HANDLED audit row found with meta_json.request_id == 'test-rid-123'"
+    ), "No audit row found with meta_json.request_id == 'test-rid-123' for the created outbox event"
