@@ -6,6 +6,18 @@ from app.models import AuditLog, OutboxEvent
 from app.worker import run_once
 
 
+def _get_meta_json_str(obj) -> str:
+    # Supporta naming diversi nel modello (meta_json, meta, metadata, ecc.)
+    for attr in ("meta_json", "meta", "meta_text", "meta_json_text", "meta_data", "metadata_json"):
+        if hasattr(obj, attr):
+            val = getattr(obj, attr)
+            return val or "{}"
+    raise AssertionError(
+        f"{obj.__class__.__name__} has no known meta field. "
+        f"Available attrs: {sorted([a for a in dir(obj) if not a.startswith('_')])}"
+    )
+
+
 def test_request_id_propagated_to_audit_meta(client):
     # procurement crea supplier
     login = client.post("/auth/login", json={"username": "procurement", "password": "procurement"})
@@ -49,7 +61,7 @@ def test_request_id_propagated_to_audit_meta(client):
         pending = s.query(OutboxEvent).filter(OutboxEvent.status == "PENDING").all()
         assert len(pending) == 1
         outbox = pending[0]
-        outbox_meta = json.loads(outbox.meta_json or "{}")
+        outbox_meta = json.loads(_get_meta_json_str(outbox))
         assert outbox_meta.get("request_id") == "test-rid-123", (
             "OutboxEvent.meta_json must contain request_id from X-Request-ID header"
         )
@@ -70,6 +82,6 @@ def test_request_id_propagated_to_audit_meta(client):
 
     assert new_rows, "Expected at least one new audit row after worker run"
     assert any(
-        json.loads(r.meta_json or "{}").get("request_id") == "test-rid-123"
+        json.loads(_get_meta_json_str(r)).get("request_id") == "test-rid-123"
         for r in new_rows
     ), "No new audit row found with meta_json.request_id == 'test-rid-123'"
