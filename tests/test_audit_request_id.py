@@ -7,8 +7,16 @@ from app.worker import run_once
 
 
 def _get_meta_json_str(obj) -> str:
-    # Supporta naming diversi nel modello (meta_json, meta, metadata, ecc.)
-    for attr in ("meta_json", "meta", "meta_text", "meta_json_text", "meta_data", "metadata_json"):
+    # Supporta naming diversi nel modello (meta_json, metadata, ecc.)
+    for attr in (
+        "meta_json",
+        "metadata",          # <-- QUESTO
+        "meta",
+        "meta_text",
+        "meta_json_text",
+        "meta_data",
+        "metadata_json",
+    ):
         if hasattr(obj, attr):
             val = getattr(obj, attr)
             return val or "{}"
