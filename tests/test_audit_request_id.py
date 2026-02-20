@@ -6,6 +6,41 @@ from app.models import AuditLog, OutboxEvent
 from app.worker import run_once
 
 
+def _get_json(obj, *attrs) -> dict:
+    """
+    Prende il primo attributo esistente tra attrs e lo interpreta come JSON.
+    Supporta: str, bytes/bytearray, dict. Se trova SQLAlchemy MetaData lo ignora.
+    """
+    for attr in attrs:
+        if not hasattr(obj, attr):
+            continue
+        val = getattr(obj, attr)
+
+        # SQLAlchemy Base.metadata / MetaData() -> NON è JSON applicativo
+        if val.__class__.__name__ == "MetaData":
+            continue
+
+        if val is None:
+            return {}
+
+        if isinstance(val, dict):
+            return val
+
+        if isinstance(val, (bytes, bytearray)):
+            val = val.decode("utf-8", errors="replace")
+
+        if isinstance(val, str):
+            return json.loads(val or "{}")
+
+        # fallback: non sappiamo cos'è
+        raise TypeError(f"{obj.__class__.__name__}.{attr} is {type(val)} not JSON-compatible")
+
+    raise AssertionError(
+        f"{obj.__class__.__name__} has none of attrs {attrs}. "
+        f"Available attrs: {sorted([a for a in dir(obj) if not a.startswith('_')])}"
+    )
+
+
 def _get_meta_json_str(obj) -> str:
     # Supporta naming diversi nel modello (meta_json, metadata, ecc.)
     for attr in (
@@ -69,9 +104,9 @@ def test_request_id_propagated_to_audit_meta(client):
         pending = s.query(OutboxEvent).filter(OutboxEvent.status == "PENDING").all()
         assert len(pending) == 1
         outbox = pending[0]
-        outbox_meta = json.loads(_get_meta_json_str(outbox))
-        assert outbox_meta.get("request_id") == "test-rid-123", (
-            "OutboxEvent.meta_json must contain request_id from X-Request-ID header"
+        outbox_payload = _get_json(outbox, "payload_json")
+        assert outbox_payload.get("request_id") == "test-rid-123", (
+            "OutboxEvent.payload_json must contain request_id from X-Request-ID header"
         )
 
     # 3) Run worker once to handle outbox -> writes audit
@@ -90,6 +125,6 @@ def test_request_id_propagated_to_audit_meta(client):
 
     assert new_rows, "Expected at least one new audit row after worker run"
     assert any(
-        json.loads(_get_meta_json_str(r)).get("request_id") == "test-rid-123"
+        _get_json(r, "meta_json").get("request_id") == "test-rid-123"
         for r in new_rows
     ), "No new audit row found with meta_json.request_id == 'test-rid-123'"
