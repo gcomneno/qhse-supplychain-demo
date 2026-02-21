@@ -18,7 +18,7 @@ Service Layer (Business Logic)
 ↓
 Persistence Layer (SQLAlchemy 2.0)
 ↓
-Database (PostgreSQL / SQLite for tests)
+Database (PostgreSQL / idem for tests)
 
 ```
 
@@ -199,7 +199,7 @@ The system behaves as:
 
 Tests use:
 
-- SQLite
+- Postgresql
 - Fresh DB per test session
 - Deterministic transaction boundaries
 

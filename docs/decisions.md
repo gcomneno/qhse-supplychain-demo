@@ -78,7 +78,7 @@ This is acceptable for the intended scope.
 
 ---
 
-# ADR-003: Use SQLite for Tests and PostgreSQL for Runtime
+# ADR-003: Use PostgreSQL for Runtime and Tests
 
 ## Context
 
@@ -93,7 +93,6 @@ Production-like behavior should use a real RDBMS.
 
 ## Decision
 
-- SQLite for test environment
 - PostgreSQL (Docker) for runtime/demo
 
 ## Consequences

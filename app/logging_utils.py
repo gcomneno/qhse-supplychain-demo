@@ -4,22 +4,21 @@ import json
 import logging
 import sys
 
-from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any
-
 from opentelemetry.trace import get_current_span
-
-
-_request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
+from app.observability.request_context import request_id_var
 
 
 def set_request_id(rid: str | None) -> None:
-    _request_id.set(rid)
+    request_id_var.set(rid)
 
 
 def get_request_id() -> str | None:
-    return _request_id.get()
+    try:
+        return request_id_var.get()
+    except Exception:
+        return None
 
 
 class RequestIdFilter(logging.Filter):

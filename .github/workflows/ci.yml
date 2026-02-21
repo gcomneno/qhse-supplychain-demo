@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+
+          # Install runtime deps (if present)
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+          # Install dev/test deps (required for CI)
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          else
+            echo "ERROR: requirements-dev.txt not found (pytest missing)" >&2
+            exit 1
+          fi
+
+          python -m pytest --version
+
+      - name: Show Docker / Compose versions
+        run: |
+          docker --version
+          docker compose version
+
+      - name: Run deterministic test suite
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONUNBUFFERED: "1"
+          COMPOSE_PROJECT_NAME: "qhseci"
+        run: |
+          set -euxo pipefail
+
+          docker compose up -d db
+
+          # wait postgres inside the container
+          for i in $(seq 1 60); do
+            docker compose exec -T db pg_isready -U "$(docker compose exec -T db printenv POSTGRES_USER || echo postgres)" && break
+            sleep 1
+          done
+
+          # discover creds from container env (standard postgres image vars)
+          DB_USER="$(docker compose exec -T db printenv POSTGRES_USER || echo postgres)"
+          DB_PASS="$(docker compose exec -T db printenv POSTGRES_PASSWORD || true)"
+          DB_NAME="$(docker compose exec -T db printenv POSTGRES_DB || echo postgres)"
+
+          # build DATABASE_URL (psycopg)
+          export DATABASE_URL="postgresql+psycopg://${DB_USER}:${DB_PASS}@127.0.0.1:5432/${DB_NAME}"
+
+          echo "DATABASE_URL is set for user=${DB_USER} db=${DB_NAME} (password hidden)"
+
+          alembic upgrade head
+
+          python - <<'PY'
+          import os
+          import psycopg
+          url = os.environ["DATABASE_URL"].replace("postgresql+psycopg://", "postgresql://")
+          with psycopg.connect(url) as conn:
+            with conn.cursor() as cur:
+              cur.execute("select to_regclass('public.suppliers')")
+              print("to_regclass(public.suppliers) =", cur.fetchone()[0])
+          PY
+
+          make test
+
+      - name: Cleanup docker compose
+        if: always()
+        run: |
+          docker compose down -v --remove-orphans || true

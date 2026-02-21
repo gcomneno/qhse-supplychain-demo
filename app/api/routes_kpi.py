@@ -45,7 +45,6 @@ def get_kpi():
         # Suppliers at risk = cert expired OR at least one OPEN high NC
         # certification_expiry is stored as ISO string "YYYY-MM-DD" for demo simplicity.
         # - On Postgres: cast string -> date using to_date()
-        # - On SQLite (tests): no to_date(), ISO string comparison works lexicographically
         dialect = session.get_bind().dialect.name
         today_iso = today.isoformat()
 
