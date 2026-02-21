@@ -284,3 +284,26 @@ It demonstrates:
 - Layered dependency model
 
 The focus is correctness, not feature density.
+
+---
+
+## 13. DEMO Architecture (high level)
+
+- FastAPI (sync)
+- Postgres
+- Outbox pattern
+- Worker (polling, 1-event-1-transaction)
+- Prometheus metrics (RED + Outbox health)
+- Jaeger tracing
+
+Semantics:
+- At-least-once event processing
+- No exactly-once guarantees (demo scope)
+
+---
+
+## 14. Known limitations
+- No idempotency guarantees (demo scope)
+- Single worker
+- No horizontal scaling
+- No real message broker
