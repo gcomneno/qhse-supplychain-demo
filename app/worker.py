@@ -67,6 +67,12 @@ outbox_oldest_unprocessed_age_seconds = Gauge(
 logger = logging.getLogger("qhse.worker")
 
 
+def _as_utc_aware(dt: datetime) -> datetime:
+    # Se dal DB arriva naive, assumiamo sia UTC (coerente con la demo)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    # Se è già aware, la portiamo comunque in UTC
+    return dt.astimezone(timezone.utc)
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -199,7 +205,6 @@ def _process_single_event(session, ev: OutboxEvent, settings) -> int:
     finally:
         worker_job_duration_seconds.labels(event_type=ev.event_type).observe(time.time() - t1)
         set_request_id(prev_rid)
-        return 1
 
 
 def _parse_meta(meta_json: str | None) -> tuple[str | None, str | None]:
@@ -275,7 +280,9 @@ def run_once(limit: int | None = None) -> int:
 
             oldest = q.order_by(OutboxEvent.created_at.asc()).first()
             if oldest and oldest.created_at:
-                age = (datetime.utcnow() - oldest.created_at).total_seconds()
+                now = datetime.now(timezone.utc)
+                created = _as_utc_aware(oldest.created_at)
+                age = (now - created).total_seconds()
                 outbox_oldest_unprocessed_age_seconds.set(age)
             else:
                 outbox_oldest_unprocessed_age_seconds.set(0)
