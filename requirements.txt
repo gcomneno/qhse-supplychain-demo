@@ -33,3 +33,4 @@ opentelemetry-instrumentation-logging==0.46b0
 opentelemetry-instrumentation-sqlalchemy==0.46b0
 opentelemetry-exporter-otlp-proto-http==1.25.0
 setuptools==75.1.0
+prometheus-client>=0.20,<1.0

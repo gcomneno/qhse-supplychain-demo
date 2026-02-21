@@ -78,5 +78,16 @@ services:
       - COLLECTOR_OTLP_ENABLED=true
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./observability/prometheus/rules.yml:/etc/prometheus/rules.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+      - worker
+      
 volumes:
   qhse_pgdata:

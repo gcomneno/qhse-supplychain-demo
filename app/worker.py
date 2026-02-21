@@ -25,6 +25,44 @@ from app.observability.worker_tracing import setup_worker_tracing
 from opentelemetry.propagate import extract
 from opentelemetry import trace
 
+from prometheus_client import Counter, Histogram, Gauge
+
+
+# --- Worker RED metrics ---
+worker_poll_iterations_total = Counter(
+    "worker_poll_iterations_total",
+    "Total polling iterations",
+    ["result"],  # ok | empty | error
+)
+
+worker_poll_duration_seconds = Histogram(
+    "worker_poll_duration_seconds",
+    "Duration of worker polling iteration",
+)
+
+worker_jobs_processed_total = Counter(
+    "worker_jobs_processed_total",
+    "Total processed jobs",
+    ["status", "event_type"],  # success|failed ; event_type low-card
+)
+
+worker_job_duration_seconds = Histogram(
+    "worker_job_duration_seconds",
+    "Duration of single job processing",
+    ["event_type"],
+)
+
+# --- Outbox health metrics ---
+outbox_unprocessed_total = Gauge(
+    "outbox_unprocessed_total",
+    "Number of unprocessed outbox events (PENDING+PROCESSING)",
+)
+
+outbox_oldest_unprocessed_age_seconds = Gauge(
+    "outbox_oldest_unprocessed_age_seconds",
+    "Age of oldest unprocessed outbox event in seconds",
+)
+
 
 logger = logging.getLogger("qhse.worker")
 
@@ -120,92 +158,132 @@ def claim_outbox_ids(
     return claimed_ids
 
 
+def _claim_batch(batch: int, worker_id: str, settings) -> list[int]:
+    with get_session() as session:
+        return claim_outbox_ids(
+            session,
+            limit=batch,
+            worker_id=worker_id,
+            lock_timeout_sec=settings.OUTBOX_LOCK_TIMEOUT_SEC,
+        )
+
+
+def _start_worker_span(tp: str | None):
+    tracer = trace.get_tracer("qhse.worker")
+
+    if tp:
+        ctx = extract({"traceparent": tp})
+        return tracer.start_as_current_span("worker.process_event", context=ctx)
+
+    return tracer.start_as_current_span("worker.process_event")
+
+
+def _process_single_event(session, ev: OutboxEvent, settings) -> int:
+    t1 = time.time()
+    try:
+        prev_rid = get_request_id()
+        rid, tp = _parse_meta(ev.meta_json)
+
+        if rid:
+            set_request_id(rid)
+
+        with _start_worker_span(tp):
+            process_one_event(session, ev)
+
+        worker_jobs_processed_total.labels(status="success", event_type=ev.event_type).inc()
+        return 1
+    except Exception:
+        worker_jobs_processed_total.labels(status="failed", event_type=ev.event_type).inc()
+        _handle_processing_error(session, ev, settings)
+        return 0
+    finally:
+        worker_job_duration_seconds.labels(event_type=ev.event_type).observe(time.time() - t1)
+        set_request_id(prev_rid)
+        return 1
+
+
+def _parse_meta(meta_json: str | None) -> tuple[str | None, str | None]:
+    if not meta_json:
+        return None, None
+
+    try:
+        meta = json.loads(meta_json) or {}
+        if not isinstance(meta, dict):
+            return None, None
+    except Exception:
+        logger.warning("invalid meta_json; ignoring")
+        return None, None
+
+    rid = meta.get("request_id")
+    tp = meta.get("traceparent") or meta.get("trace_parent")
+    return rid, tp
+
+
+def _handle_processing_error(session, ev: OutboxEvent, settings) -> None:
+    if ev.attempts >= settings.OUTBOX_MAX_ATTEMPTS:
+        ev.status = "FAILED"
+    else:
+        ev.status = "PENDING"
+
+    ev.locked_by = None
+    ev.locked_at = None
+    session.flush()
+
+    logger.exception(
+        "error processing event",
+        extra={
+            "outbox_id": ev.id,
+            "event_type": ev.event_type,
+            "status": ev.status,
+            "attempts": ev.attempts,
+        },
+    )
+
+
 def run_once(limit: int | None = None) -> int:
+    t0 = time.time()
+
     settings = get_settings()
     batch = limit if limit is not None else settings.OUTBOX_BATCH_SIZE
 
     processed = 0
-    worker_id = "worker"  # demo: stable id; could be hostname/pid later
+    worker_id = "worker"
 
     batch_rid = f"worker:{uuid.uuid4()}"
     set_request_id(batch_rid)
-    try:
-        # 1) Atomically claim candidate IDs in a single transaction.
-        with get_session() as session:
-            event_ids = claim_outbox_ids(
-                session,
-                limit=batch,
-                worker_id=worker_id,
-                lock_timeout_sec=settings.OUTBOX_LOCK_TIMEOUT_SEC,
-            )
 
-        # 2) Process each claimed event in its own transaction/session (1-event-1-transaction semantics).
+    try:
+        event_ids = _claim_batch(batch, worker_id, settings)
+
         for outbox_id in event_ids:
             with get_session() as session:
                 ev = session.get(OutboxEvent, outbox_id)
-                if ev is None:
+                if not ev or ev.status != "PROCESSING":
                     continue
 
-                if ev.status != "PROCESSING":
-                    continue
+                processed += _process_single_event(session, ev, settings)
 
-                prev_rid = get_request_id()
-                try:
-                    rid = None
-                    if ev.meta_json:
-                        try:
-                            meta = {}
-                            if ev.meta_json:
-                                try:
-                                    meta = json.loads(ev.meta_json) or {}
-                                except Exception:
-                                    meta = {}
+        if processed == 0:
+            worker_poll_iterations_total.labels(result="empty").inc()
+        else:
+            worker_poll_iterations_total.labels(result="ok").inc()
 
-                            rid = meta.get("request_id")
-                            tp = meta.get("traceparent")
-                        except Exception:
-                            rid = None
+        # Outbox health (one query per loop)
+        with get_session() as session:
+            q = session.query(OutboxEvent).filter(OutboxEvent.status.in_(["PENDING", "PROCESSING"]))
+            outbox_unprocessed_total.set(q.count())
 
-                    if rid:
-                        set_request_id(rid)
-
-                    tracer = trace.get_tracer("qhse.worker")
-
-                    if tp:
-                        ctx = extract({"traceparent": tp})
-                        span_cm = tracer.start_as_current_span("worker.process_event", context=ctx)
-                    else:
-                        span_cm = tracer.start_as_current_span("worker.process_event")
-
-                    with span_cm:
-                        process_one_event(session, ev)
-                        
-                    processed += 1
-                except Exception:
-                    # Release lock; either requeue or fail permanently.
-                    if ev.attempts >= settings.OUTBOX_MAX_ATTEMPTS:
-                        ev.status = "FAILED"
-                    else:
-                        ev.status = "PENDING"
-
-                    ev.locked_by = None
-                    ev.locked_at = None
-                    session.flush()
-
-                    logger.exception(
-                        "error processing event",
-                        extra={
-                            "outbox_id": ev.id,
-                            "event_type": ev.event_type,
-                            "status": ev.status,
-                            "attempts": ev.attempts,
-                        },
-                    )
-                finally:
-                    set_request_id(prev_rid)
+            oldest = q.order_by(OutboxEvent.created_at.asc()).first()
+            if oldest and oldest.created_at:
+                age = (datetime.utcnow() - oldest.created_at).total_seconds()
+                outbox_oldest_unprocessed_age_seconds.set(age)
+            else:
+                outbox_oldest_unprocessed_age_seconds.set(0)
 
         return processed
+
     finally:
+        worker_poll_duration_seconds.observe(time.time() - t0)
         set_request_id(None)
 
 
@@ -218,6 +296,15 @@ def main() -> None:
     # 2) tracing dopo
     setup_worker_tracing(enabled=settings.ENABLE_TRACING)
 
+    # 3) metrics endpoint (Prometheus pull)
+    #    Nota: start_http_server avvia un server HTTP in background (thread daemon).
+    from os import getenv
+    from prometheus_client import start_http_server
+
+    metrics_port = int(getenv("WORKER_METRICS_PORT", "9100"))
+    start_http_server(metrics_port)
+    logger.info("worker metrics server started", extra={"port": metrics_port})
+
     logger.info("worker starting", extra={"status": "starting"})
 
     from opentelemetry import trace
@@ -225,9 +312,14 @@ def main() -> None:
 
     while True:
         with tracer.start_as_current_span("worker.loop"):
-            n = run_once()
-            if n:
-                logger.info("batch processed", extra={"status": "processed", "count": n})
+            try:
+                n = run_once()
+            except Exception:
+                worker_poll_iterations_total.labels(result="error").inc()
+                raise
+            else:
+                if n:
+                    logger.info("batch processed", extra={"status": "processed", "count": n})
         time.sleep(1.0)
 
 

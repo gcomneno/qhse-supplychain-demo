@@ -1,0 +1,42 @@
+groups:
+  - name: qhse-alerts
+    rules:
+
+      - alert: ApiHighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total[5m])) > 0.02
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API error rate"
+
+      - alert: ApiHighLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket[5m]))
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p95 latency too high"
+
+      - alert: WorkerNoProgress
+        expr: increase(worker_jobs_processed_total[15m]) == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worker made no progress"
+
+      - alert: OutboxLagTooHigh
+        expr: outbox_oldest_unprocessed_age_seconds > 300
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox lag too high"
