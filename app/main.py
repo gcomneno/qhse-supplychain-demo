@@ -23,7 +23,7 @@ from starlette.responses import Response
 
 from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest, Counter, Histogram
 
-from app.observability.tracing import setup_tracing
+from app.observability.tracing import init_tracing
 
 from app.api.routes_suppliers import router as suppliers_router
 from app.api.routes_ncs import router as ncs_router
@@ -62,8 +62,7 @@ app.include_router(auth_router)
 app.include_router(audit_log_router)
 
 settings = get_settings()
-
-setup_tracing(app, enabled=settings.ENABLE_TRACING)
+init_tracing(app, enabled=settings.ENABLE_TRACING)
 
 configure_logging(level=settings.LOG_LEVEL, json_logs=settings.LOG_JSON)
 logger = logging.getLogger("qhse.api")
@@ -151,8 +150,6 @@ def readyz():
     - always checks DB connectivity
     - checks migrations alignment when ENV != 'test'
     """
-    settings = get_settings()
-
     details: dict[str, Any] = {
         "status": "ready",
         "checks": {

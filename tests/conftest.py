@@ -126,3 +126,23 @@ END $$;
 def client():
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture(scope="session", autouse=True)
+def shutdown_otel_at_end():
+    """
+    Evita il rumore:
+    'ValueError: I/O operation on closed file'
+    causato da exporter/thread OTel ancora vivo a fine pytest.
+    """
+    yield
+    try:
+        from opentelemetry import trace
+
+        tp = trace.get_tracer_provider()
+        shutdown = getattr(tp, "shutdown", None)
+        if callable(shutdown):
+            shutdown()
+    except Exception:
+        # mai far fallire i test per cleanup observability
+        pass

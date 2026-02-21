@@ -22,6 +22,9 @@ from app.models import OutboxEvent, ProcessedEvent
 from app.settings import get_settings
 from app.observability.worker_tracing import setup_worker_tracing
 
+from opentelemetry.propagate import extract
+from opentelemetry import trace
+
 
 logger = logging.getLogger("qhse.worker")
 
@@ -151,14 +154,32 @@ def run_once(limit: int | None = None) -> int:
                     rid = None
                     if ev.meta_json:
                         try:
-                            rid = (json.loads(ev.meta_json) or {}).get("request_id")
+                            meta = {}
+                            if ev.meta_json:
+                                try:
+                                    meta = json.loads(ev.meta_json) or {}
+                                except Exception:
+                                    meta = {}
+
+                            rid = meta.get("request_id")
+                            tp = meta.get("traceparent")
                         except Exception:
                             rid = None
 
                     if rid:
                         set_request_id(rid)
 
-                    process_one_event(session, ev)
+                    tracer = trace.get_tracer("qhse.worker")
+
+                    if tp:
+                        ctx = extract({"traceparent": tp})
+                        span_cm = tracer.start_as_current_span("worker.process_event", context=ctx)
+                    else:
+                        span_cm = tracer.start_as_current_span("worker.process_event")
+
+                    with span_cm:
+                        process_one_event(session, ev)
+                        
                     processed += 1
                 except Exception:
                     # Release lock; either requeue or fail permanently.

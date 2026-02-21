@@ -34,10 +34,14 @@ services:
       context: .
     environment:
       ENV: docker
+      APP_VERSION: local
       DATABASE_URL: postgresql+psycopg://qhse:qhse@qhse_pg:5432/qhse
       JWT_SECRET: changeme
       JWT_ALG: HS256
       ACCESS_TOKEN_EXPIRE_MIN: "60"
+      ENABLE_TRACING: "1"
+      OTEL_TRACES_EXPORTER: "otlp"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318/v1/traces"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -51,15 +55,28 @@ services:
       context: .
     environment:
       ENV: docker
+      APP_VERSION: local
       DATABASE_URL: postgresql+psycopg://qhse:qhse@qhse_pg:5432/qhse
       JWT_SECRET: changeme
       JWT_ALG: HS256
       ACCESS_TOKEN_EXPIRE_MIN: "60"
+      ENABLE_TRACING: "1"
+      OTEL_TRACES_EXPORTER: "otlp"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4318/v1/traces"
     depends_on:
       migrate:
         condition: service_completed_successfully
     command: ["python", "-m", "app.worker"]
     restart: on-failure:3
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.55
+    ports:
+      - "16686:16686" # UI
+      - "4318:4318"   # OTLP HTTP ingest
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    restart: unless-stopped
 
 volumes:
   qhse_pgdata:
